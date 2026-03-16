@@ -1,91 +1,91 @@
 # Purl MCP Server
 
-MCP (Model Context Protocol) server that exposes Purl Studio project files to AI assistants like Claude.
+MCP server that connects AI assistants to your live [Purl Studio](https://purl.studio) project. Read objects, modify scripts, set properties — all from your AI coding tool.
 
-## Features
+## Quick Setup
 
-- **get_project** - Read and parse .purl files, get project structure
-- **list_objects** - List objects with names, types, tags, and properties
-- **get_script** - Get script code for any object or cell
-- **validate_script** - Check script syntax for errors
-- **list_purl_files** - Find .purl files in a directory
-
-## Installation
+### Claude Code
 
 ```bash
-npm install
-npm run build
+claude mcp add purl -- npx purl-mcp@latest
 ```
 
-## Usage with Claude Code
+### Cursor
 
-Add to your Claude Code MCP settings (`~/.claude/settings.json`):
+Add to `.cursor/mcp.json`:
 
 ```json
 {
   "mcpServers": {
     "purl": {
-      "command": "node",
-      "args": ["/Users/yurikovenski/purl-mcp-server/dist/index.js"]
+      "command": "npx",
+      "args": ["purl-mcp@latest"]
     }
   }
 }
 ```
 
-Then restart Claude Code. The tools will be available automatically.
+### VS Code
 
-## Example Usage
+Add to your VS Code settings:
 
-Once configured, you can ask Claude Code:
+```json
+{
+  "mcp": {
+    "servers": {
+      "purl": {
+        "command": "npx",
+        "args": ["purl-mcp@latest"]
+      }
+    }
+  }
+}
+```
 
-- "List objects in my game.purl file"
-- "Show me the script for the Player object in ~/projects/game.purl"
-- "Validate this script: onClick: show Message"
-- "What cells are in ~/Desktop/puzzle.purl?"
+## How It Works
+
+The MCP server runs a local WebSocket bridge on port 3001. When you open Purl Studio in your browser, it automatically connects to the bridge. Your AI assistant communicates with the MCP server via stdio, which forwards requests to the browser over WebSocket.
+
+```
+AI Assistant  ←stdio→  MCP Server  ←WebSocket→  Browser (purl.studio)
+```
+
+No API keys, no cloud relay — everything runs locally on your machine.
 
 ## Tools
 
-### get_project
+### Read Tools
 
-Read a .purl file and return project summary.
+| Tool | Description |
+|------|-------------|
+| `get_project` | Get project structure (cells, settings) |
+| `list_objects` | List all objects with names, types, tags |
+| `get_script` | Get script code for an object or cell |
+| `get_states` | Get component states/presets |
+| `dsl_reference` | Query Purl DSL documentation |
+| `validate_script` | Check script syntax for errors |
 
-```
-Input: { path: "~/game.purl" }
-Output: { title, cells, settings, ... }
-```
+### Write Tools
 
-### list_objects
+| Tool | Description |
+|------|-------------|
+| `set_property` | Set properties on an object (position, size, color, etc.) |
+| `update_script` | Replace script code on an object or cell |
+| `add_object` | Create a new object in a cell |
+| `remove_object` | Delete an object |
+| `update_cell` | Set cell-level properties (gravity, wind, size) |
+| `clone_object` | Deep-clone an object tree |
+| `bulk_set_property` | Set properties on multiple objects at once |
 
-List all objects in a project or specific cell.
+## Configuration
 
-```
-Input: { path: "~/game.purl", cellName?: "Level1" }
-Output: { "Level1": [{ name, type, tags, ... }] }
-```
+| Environment Variable | Default | Description |
+|---------------------|---------|-------------|
+| `PURL_WS_PORT` | `3001` | WebSocket server port |
 
-### get_script
+You can also set the port in the browser via URL parameter: `https://purl.studio?mcpPort=3002`
 
-Get script code for an object or cell.
+## Requirements
 
-```
-Input: { path: "~/game.purl", target: "Player" }
-Input: { path: "~/game.purl", target: "cell:Level1" }
-Output: "onClick:\n  show Message"
-```
-
-### validate_script
-
-Check if script syntax is valid.
-
-```
-Input: { code: "onClick: show Message" }
-Output: "Script syntax is valid"
-```
-
-## Development
-
-```bash
-npm run dev    # Watch mode
-npm run build  # Build once
-npm start      # Run server
-```
+- Node.js 18+
+- A browser with Purl Studio open

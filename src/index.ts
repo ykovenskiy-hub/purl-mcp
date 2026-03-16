@@ -27,11 +27,12 @@ import {
   VARIABLES,
   OPERATORS,
   TRANSITIONS,
+  CONCEPTS,
   SCRIPTABLE_PROPERTIES,
   CELL_SCRIPTABLE_PROPERTIES,
   FILL_LAYER_PROPERTIES,
   generateSyntaxReference,
-} from 'purl-parser'
+} from '../vendor/purl-parser.mjs'
 import { createWsBridge } from './wsServer.js'
 
 // WebSocket bridge to browser
@@ -40,8 +41,9 @@ const bridge = createWsBridge(WS_PORT)
 
 // Tools forwarded to browser (no path param needed — operates on live state)
 const BROWSER_TOOLS = new Set([
-  'get_project', 'list_objects', 'get_script',
+  'get_project', 'list_objects', 'get_script', 'get_states',
   'set_property', 'update_script', 'add_object', 'remove_object', 'update_cell',
+  'clone_object', 'bulk_set_property',
 ])
 
 // Tool definitions
@@ -97,14 +99,14 @@ const tools: Tool[] = [
   },
   {
     name: 'dsl_reference',
-    description: 'Get reference documentation for the Purl DSL scripting language. Query by category (events, actions, functions, variables, operators, properties, transitions) or get the full syntax reference.',
+    description: 'Get reference documentation for the Purl DSL scripting language. Query by category (events, actions, functions, variables, operators, properties, transitions, concepts) or get the full syntax reference. The "concepts" category covers object variables, component child access, message parameters, spawn parameters, and variable scopes.',
     inputSchema: {
       type: 'object',
       properties: {
         category: {
           type: 'string',
-          enum: ['events', 'actions', 'functions', 'variables', 'operators', 'properties', 'transitions', 'all'],
-          description: 'Category to query. Use "all" for the complete syntax reference.',
+          enum: ['events', 'actions', 'functions', 'variables', 'operators', 'properties', 'transitions', 'concepts', 'all'],
+          description: 'Category to query. Use "concepts" for object variables, message params, spawn params, component child access. Use "all" for the complete syntax reference.',
         },
         name: {
           type: 'string',
@@ -221,6 +223,82 @@ const tools: Tool[] = [
       required: ['cellName', 'properties'],
     },
   },
+  {
+    name: 'get_states',
+    description: 'Get presets/states for a component. Returns child list, preset names with per-child property overrides, reference snapshot, and state groups. Only works on components.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        objectName: {
+          type: 'string',
+          description: 'Name of the component to inspect',
+        },
+        cellName: {
+          type: 'string',
+          description: 'Optional: cell to search in (by label)',
+        },
+      },
+      required: ['objectName'],
+    },
+  },
+  {
+    name: 'clone_object',
+    description: 'Deep-clone an object (with all children, presets, states, scripts) into the same or a different cell. Generates new unique IDs and renames children to avoid name collisions.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        sourceName: {
+          type: 'string',
+          description: 'Name of the object to clone',
+        },
+        newName: {
+          type: 'string',
+          description: 'Name for the cloned object (must be unique)',
+        },
+        cellName: {
+          type: 'string',
+          description: 'Optional: cell where the source object lives (by label)',
+        },
+        targetCellName: {
+          type: 'string',
+          description: 'Optional: cell to place the clone in (defaults to same cell as source)',
+        },
+      },
+      required: ['sourceName', 'newName'],
+    },
+  },
+  {
+    name: 'bulk_set_property',
+    description: 'Set properties on multiple objects in a single call. Useful for mass-editing children of a component (e.g., changing colors). Each entry specifies an object name and properties to set.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        updates: {
+          type: 'array',
+          items: {
+            type: 'object',
+            properties: {
+              objectName: {
+                type: 'string',
+                description: 'Name of the object to modify',
+              },
+              properties: {
+                type: 'object',
+                description: 'Key-value pairs to set',
+              },
+            },
+            required: ['objectName', 'properties'],
+          },
+          description: 'Array of { objectName, properties } entries',
+        },
+        cellName: {
+          type: 'string',
+          description: 'Optional: cell to search in (by label). Applies to all entries.',
+        },
+      },
+      required: ['updates'],
+    },
+  },
 ]
 
 // --- Local tool handlers (parser bundle) ---
@@ -256,6 +334,7 @@ function handleDslReference(args: { category: string; name?: string }): string {
       ['operator', OPERATORS],
       ['transition', TRANSITIONS],
       ['property', SCRIPTABLE_PROPERTIES],
+      ['concept', CONCEPTS],
     ]
     for (const [category, registry] of registries) {
       if (name in registry) {
@@ -302,10 +381,12 @@ function handleDslReference(args: { category: string; name?: string }): string {
         cell: CELL_SCRIPTABLE_PROPERTIES,
         fillLayers: FILL_LAYER_PROPERTIES,
       }, null, 2)
+    case 'concepts':
+      return JSON.stringify(CONCEPTS, null, 2)
     case 'all':
       return generateSyntaxReference()
     default:
-      return `Unknown category: "${args.category}". Use: events, actions, functions, variables, operators, properties, transitions, all`
+      return `Unknown category: "${args.category}". Use: events, actions, functions, variables, operators, properties, transitions, concepts, all`
   }
 }
 

@@ -1,0 +1,12 @@
+import type { SetStatement, SetPropertyStatement, SetStateStatement, SetGridCellDataStatement, ResetStatement, ResetScriptStatement, RestartStatement, EndGameStatement, ReturnStatement, BreakStatement, SaveStatement, LoadStatement, DeleteSaveStatement } from '../../../types/script';
+import type { ControlFlowParserContext } from './controlFlow';
+export type SetParserContext = ControlFlowParserContext;
+export declare function parseSet(ctx: SetParserContext): SetStatement | SetPropertyStatement | SetStateStatement | SetGridCellDataStatement;
+export declare function parseReset(ctx: SetParserContext): ResetStatement | ResetScriptStatement;
+export declare function parseRestart(ctx: SetParserContext): RestartStatement;
+export declare function parseEndGame(ctx: SetParserContext): EndGameStatement;
+export declare function parseReturn(ctx: SetParserContext): ReturnStatement;
+export declare function parseBreak(ctx: SetParserContext): BreakStatement;
+export declare function parseSave(ctx: SetParserContext): SaveStatement;
+export declare function parseLoad(ctx: SetParserContext): LoadStatement;
+export declare function parseDeleteSave(ctx: SetParserContext): DeleteSaveStatement;

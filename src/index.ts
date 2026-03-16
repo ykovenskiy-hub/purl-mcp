@@ -392,9 +392,42 @@ function handleDslReference(args: { category: string; name?: string }): string {
 
 // --- MCP Server ---
 
+const SERVER_INSTRUCTIONS = `\
+You are connected to a live Purl Studio project via MCP.
+
+Purl Studio (purl.studio) is a browser-based visual game/interactive-content engine. \
+Users build projects composed of **cells** (scenes/rooms), each containing **objects** \
+(shapes, text, lines, grids, components, audio, emitters, masks, pegs, viewports). \
+Objects have visual properties (position, size, fill, opacity, etc.) and can have **scripts** \
+written in the Purl DSL — an event-driven scripting language (onClick, onTick, onCollide, etc.).
+
+**Components** are grouping objects whose children move together. They support **presets** \
+(named visual states) and **state transitions**.
+
+## How to use these tools
+
+1. **Start with \`get_project\`** to understand the project structure — cells, objects, markers.
+2. **Use \`list_objects\`** to see what's in a specific cell.
+3. **Use \`get_script\`** to read an object's script before modifying it.
+4. **Use \`dsl_reference\`** to look up valid events, actions, functions, and properties \
+before writing scripts. The Purl DSL has specific syntax — never guess.
+5. **Use \`validate_script\`** to check script syntax before applying it with \`update_script\`.
+6. **Use \`set_property\`** / \`bulk_set_property\`** to change object properties.
+7. **Use \`add_object\`** / \`remove_object\`** to create or delete objects.
+8. **Use \`update_cell\`** to change cell-level settings (gravity, wind, size).
+
+## Important notes
+
+- **Coordinates are 0–1 normalized** (0,0 = top-left, 1,1 = bottom-right).
+- Changes made via these tools appear **instantly** in the user's browser.
+- Always call \`dsl_reference\` with category "events" or "actions" before writing scripts \
+if you are unsure about syntax. Never invent event or action names.
+- The user can see and undo your changes in the editor's undo history.
+`
+
 const server = new Server(
   { name: 'purl-mcp-server', version: '0.2.0' },
-  { capabilities: { tools: {} } }
+  { capabilities: { tools: {} }, instructions: SERVER_INSTRUCTIONS }
 )
 
 server.setRequestHandler(ListToolsRequestSchema, async () => ({ tools }))

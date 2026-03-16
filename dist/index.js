@@ -14,15 +14,16 @@
 import { Server } from '@modelcontextprotocol/sdk/server/index.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { CallToolRequestSchema, ListToolsRequestSchema, } from '@modelcontextprotocol/sdk/types.js';
-import { parseEventScript, EVENTS, ACTIONS, FUNCTIONS, VARIABLES, OPERATORS, TRANSITIONS, SCRIPTABLE_PROPERTIES, CELL_SCRIPTABLE_PROPERTIES, FILL_LAYER_PROPERTIES, generateSyntaxReference, } from 'purl-parser';
+import { parseEventScript, EVENTS, ACTIONS, FUNCTIONS, VARIABLES, OPERATORS, TRANSITIONS, CONCEPTS, SCRIPTABLE_PROPERTIES, CELL_SCRIPTABLE_PROPERTIES, FILL_LAYER_PROPERTIES, generateSyntaxReference, } from '../vendor/purl-parser.mjs';
 import { createWsBridge } from './wsServer.js';
 // WebSocket bridge to browser
 const WS_PORT = Number(process.env.PURL_WS_PORT) || 3001;
 const bridge = createWsBridge(WS_PORT);
 // Tools forwarded to browser (no path param needed — operates on live state)
 const BROWSER_TOOLS = new Set([
-    'get_project', 'list_objects', 'get_script',
+    'get_project', 'list_objects', 'get_script', 'get_states',
     'set_property', 'update_script', 'add_object', 'remove_object', 'update_cell',
+    'clone_object', 'bulk_set_property',
 ]);
 // Tool definitions
 const tools = [
@@ -77,14 +78,14 @@ const tools = [
     },
     {
         name: 'dsl_reference',
-        description: 'Get reference documentation for the Purl DSL scripting language. Query by category (events, actions, functions, variables, operators, properties, transitions) or get the full syntax reference.',
+        description: 'Get reference documentation for the Purl DSL scripting language. Query by category (events, actions, functions, variables, operators, properties, transitions, concepts) or get the full syntax reference. The "concepts" category covers object variables, component child access, message parameters, spawn parameters, and variable scopes.',
         inputSchema: {
             type: 'object',
             properties: {
                 category: {
                     type: 'string',
-                    enum: ['events', 'actions', 'functions', 'variables', 'operators', 'properties', 'transitions', 'all'],
-                    description: 'Category to query. Use "all" for the complete syntax reference.',
+                    enum: ['events', 'actions', 'functions', 'variables', 'operators', 'properties', 'transitions', 'concepts', 'all'],
+                    description: 'Category to query. Use "concepts" for object variables, message params, spawn params, component child access. Use "all" for the complete syntax reference.',
                 },
                 name: {
                     type: 'string',
@@ -201,6 +202,82 @@ const tools = [
             required: ['cellName', 'properties'],
         },
     },
+    {
+        name: 'get_states',
+        description: 'Get presets/states for a component. Returns child list, preset names with per-child property overrides, reference snapshot, and state groups. Only works on components.',
+        inputSchema: {
+            type: 'object',
+            properties: {
+                objectName: {
+                    type: 'string',
+                    description: 'Name of the component to inspect',
+                },
+                cellName: {
+                    type: 'string',
+                    description: 'Optional: cell to search in (by label)',
+                },
+            },
+            required: ['objectName'],
+        },
+    },
+    {
+        name: 'clone_object',
+        description: 'Deep-clone an object (with all children, presets, states, scripts) into the same or a different cell. Generates new unique IDs and renames children to avoid name collisions.',
+        inputSchema: {
+            type: 'object',
+            properties: {
+                sourceName: {
+                    type: 'string',
+                    description: 'Name of the object to clone',
+                },
+                newName: {
+                    type: 'string',
+                    description: 'Name for the cloned object (must be unique)',
+                },
+                cellName: {
+                    type: 'string',
+                    description: 'Optional: cell where the source object lives (by label)',
+                },
+                targetCellName: {
+                    type: 'string',
+                    description: 'Optional: cell to place the clone in (defaults to same cell as source)',
+                },
+            },
+            required: ['sourceName', 'newName'],
+        },
+    },
+    {
+        name: 'bulk_set_property',
+        description: 'Set properties on multiple objects in a single call. Useful for mass-editing children of a component (e.g., changing colors). Each entry specifies an object name and properties to set.',
+        inputSchema: {
+            type: 'object',
+            properties: {
+                updates: {
+                    type: 'array',
+                    items: {
+                        type: 'object',
+                        properties: {
+                            objectName: {
+                                type: 'string',
+                                description: 'Name of the object to modify',
+                            },
+                            properties: {
+                                type: 'object',
+                                description: 'Key-value pairs to set',
+                            },
+                        },
+                        required: ['objectName', 'properties'],
+                    },
+                    description: 'Array of { objectName, properties } entries',
+                },
+                cellName: {
+                    type: 'string',
+                    description: 'Optional: cell to search in (by label). Applies to all entries.',
+                },
+            },
+            required: ['updates'],
+        },
+    },
 ];
 // --- Local tool handlers (parser bundle) ---
 function handleValidateScript(args) {
@@ -229,6 +306,7 @@ function handleDslReference(args) {
             ['operator', OPERATORS],
             ['transition', TRANSITIONS],
             ['property', SCRIPTABLE_PROPERTIES],
+            ['concept', CONCEPTS],
         ];
         for (const [category, registry] of registries) {
             if (name in registry) {
@@ -277,14 +355,48 @@ function handleDslReference(args) {
                 cell: CELL_SCRIPTABLE_PROPERTIES,
                 fillLayers: FILL_LAYER_PROPERTIES,
             }, null, 2);
+        case 'concepts':
+            return JSON.stringify(CONCEPTS, null, 2);
         case 'all':
             return generateSyntaxReference();
         default:
-            return `Unknown category: "${args.category}". Use: events, actions, functions, variables, operators, properties, transitions, all`;
+            return `Unknown category: "${args.category}". Use: events, actions, functions, variables, operators, properties, transitions, concepts, all`;
     }
 }
 // --- MCP Server ---
-const server = new Server({ name: 'purl-mcp-server', version: '0.2.0' }, { capabilities: { tools: {} } });
+const SERVER_INSTRUCTIONS = `\
+You are connected to a live Purl Studio project via MCP.
+
+Purl Studio (purl.studio) is a browser-based visual game/interactive-content engine. \
+Users build projects composed of **cells** (scenes/rooms), each containing **objects** \
+(shapes, text, lines, grids, components, audio, emitters, masks, pegs, viewports). \
+Objects have visual properties (position, size, fill, opacity, etc.) and can have **scripts** \
+written in the Purl DSL — an event-driven scripting language (onClick, onTick, onCollide, etc.).
+
+**Components** are grouping objects whose children move together. They support **presets** \
+(named visual states) and **state transitions**.
+
+## How to use these tools
+
+1. **Start with \`get_project\`** to understand the project structure — cells, objects, markers.
+2. **Use \`list_objects\`** to see what's in a specific cell.
+3. **Use \`get_script\`** to read an object's script before modifying it.
+4. **Use \`dsl_reference\`** to look up valid events, actions, functions, and properties \
+before writing scripts. The Purl DSL has specific syntax — never guess.
+5. **Use \`validate_script\`** to check script syntax before applying it with \`update_script\`.
+6. **Use \`set_property\`** / \`bulk_set_property\`** to change object properties.
+7. **Use \`add_object\`** / \`remove_object\`** to create or delete objects.
+8. **Use \`update_cell\`** to change cell-level settings (gravity, wind, size).
+
+## Important notes
+
+- **Coordinates are 0–1 normalized** (0,0 = top-left, 1,1 = bottom-right).
+- Changes made via these tools appear **instantly** in the user's browser.
+- Always call \`dsl_reference\` with category "events" or "actions" before writing scripts \
+if you are unsure about syntax. Never invent event or action names.
+- The user can see and undo your changes in the editor's undo history.
+`;
+const server = new Server({ name: 'purl-mcp-server', version: '0.2.0' }, { capabilities: { tools: {} }, instructions: SERVER_INSTRUCTIONS });
 server.setRequestHandler(ListToolsRequestSchema, async () => ({ tools }));
 server.setRequestHandler(CallToolRequestSchema, async (request) => {
     const { name, arguments: args } = request.params;

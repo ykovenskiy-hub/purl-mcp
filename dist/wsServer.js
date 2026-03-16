@@ -3,61 +3,79 @@
  *
  * Runs on localhost, accepts a single browser connection (first wins).
  * Forwards tool requests to the browser and returns responses.
+ * If the requested port is in use, tries up to 10 consecutive ports.
  */
 import { WebSocketServer, WebSocket } from 'ws';
 const REQUEST_TIMEOUT_MS = 10_000;
+const MAX_PORT_ATTEMPTS = 10;
 export function createWsBridge(port) {
     let activeConnection = null;
     let requestId = 0;
+    let wss = null;
     const pending = new Map();
-    const wss = new WebSocketServer({ port });
-    console.error(`[WS Bridge] Listening on ws://localhost:${port}`);
-    wss.on('connection', (ws) => {
-        if (activeConnection && activeConnection.readyState === WebSocket.OPEN) {
-            // Reject — first wins
-            ws.close(4000, 'Another browser tab is already connected');
-            console.error('[WS Bridge] Rejected connection — active connection exists');
-            return;
-        }
-        activeConnection = ws;
-        console.error('[WS Bridge] Browser connected');
-        ws.on('message', (data) => {
-            try {
-                const msg = JSON.parse(data.toString());
-                const entry = pending.get(msg.id);
-                if (!entry)
-                    return;
-                pending.delete(msg.id);
-                clearTimeout(entry.timer);
-                if (msg.error) {
-                    entry.reject(new Error(msg.error));
-                }
-                else {
-                    // Convert result to string for MCP response
-                    const result = typeof msg.result === 'string' ? msg.result : JSON.stringify(msg.result, null, 2);
-                    entry.resolve(result);
-                }
+    function setupConnections(server) {
+        server.on('connection', (ws) => {
+            if (activeConnection && activeConnection.readyState === WebSocket.OPEN) {
+                ws.close(4000, 'Another browser tab is already connected');
+                console.error('[WS Bridge] Rejected connection — active connection exists');
+                return;
             }
-            catch {
-                // Ignore malformed messages
-            }
-        });
-        ws.on('close', () => {
-            if (activeConnection === ws) {
-                activeConnection = null;
-                console.error('[WS Bridge] Browser disconnected');
-                // Reject all pending requests
-                for (const [id, entry] of pending) {
+            activeConnection = ws;
+            console.error('[WS Bridge] Browser connected');
+            ws.on('message', (data) => {
+                try {
+                    const msg = JSON.parse(data.toString());
+                    const entry = pending.get(msg.id);
+                    if (!entry)
+                        return;
+                    pending.delete(msg.id);
                     clearTimeout(entry.timer);
-                    entry.reject(new Error('Browser disconnected'));
-                    pending.delete(id);
+                    if (msg.error) {
+                        entry.reject(new Error(msg.error));
+                    }
+                    else {
+                        const result = typeof msg.result === 'string' ? msg.result : JSON.stringify(msg.result, null, 2);
+                        entry.resolve(result);
+                    }
                 }
+                catch {
+                    // Ignore malformed messages
+                }
+            });
+            ws.on('close', () => {
+                if (activeConnection === ws) {
+                    activeConnection = null;
+                    console.error('[WS Bridge] Browser disconnected');
+                    for (const [id, entry] of pending) {
+                        clearTimeout(entry.timer);
+                        entry.reject(new Error('Browser disconnected'));
+                        pending.delete(id);
+                    }
+                }
+            });
+            ws.on('error', () => {
+                // onclose will handle cleanup
+            });
+        });
+    }
+    function tryListen(p, attempt) {
+        const server = new WebSocketServer({ port: p });
+        server.on('error', (err) => {
+            if (err.code === 'EADDRINUSE' && attempt < MAX_PORT_ATTEMPTS) {
+                server.close();
+                tryListen(p + 1, attempt + 1);
+            }
+            else {
+                console.error(`[WS Bridge] Failed to listen: ${err.message}`);
             }
         });
-        ws.on('error', () => {
-            // onclose will handle cleanup
+        server.on('listening', () => {
+            wss = server;
+            console.error(`[WS Bridge] Listening on ws://localhost:${p}`);
+            setupConnections(server);
         });
-    });
+    }
+    tryListen(port, 1);
     return {
         async forward(tool, params) {
             if (!activeConnection || activeConnection.readyState !== WebSocket.OPEN) {
@@ -86,7 +104,7 @@ export function createWsBridge(port) {
                 activeConnection.close();
                 activeConnection = null;
             }
-            wss.close();
+            wss?.close();
         },
     };
 }

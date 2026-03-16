@@ -174,7 +174,7 @@ const tools: Tool[] = [
         },
         type: {
           type: 'string',
-          enum: ['shape', 'text', 'line', 'grid', 'component'],
+          enum: ['shape', 'text', 'line', 'grid', 'component', 'audio', 'emitter', 'mask', 'peg', 'viewport'],
           description: 'Object type',
         },
         properties: {

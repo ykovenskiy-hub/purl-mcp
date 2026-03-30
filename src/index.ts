@@ -70,6 +70,24 @@ const tools: Tool[] = [
     },
   },
   {
+    name: 'get_object',
+    description: 'Get full details of a single object — all properties, dynamics config, states, children, scripts. Use this when you need to inspect or debug a specific object.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        objectName: {
+          type: 'string',
+          description: 'Name of the object to inspect',
+        },
+        cellName: {
+          type: 'string',
+          description: 'Optional: cell to search in (by label)',
+        },
+      },
+      required: ['objectName'],
+    },
+  },
+  {
     name: 'get_script',
     description: 'Get the script code for an object or cell in the current project.',
     inputSchema: {

@@ -44,6 +44,7 @@ const BROWSER_TOOLS = new Set([
   'get_project', 'list_objects', 'get_object', 'get_script', 'get_states',
   'set_property', 'update_script', 'add_object', 'remove_object', 'update_cell',
   'clone_object', 'bulk_set_property',
+  'begin_prompt', 'end_prompt',
 ])
 
 // Tool definitions
@@ -317,6 +318,28 @@ const tools: Tool[] = [
       required: ['updates'],
     },
   },
+  {
+    name: 'begin_prompt',
+    description: 'Declare the start of a user prompt. Call this BEFORE any project-modifying tools in a response that will change the project, passing the user\'s exact request as `prompt`. All subsequent write tool calls (until `end_prompt`) are grouped into ONE undo entry in the editor history, labeled with this prompt text. Essential so per-prompt edits collapse to one undo step instead of dozens of per-tool entries.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        prompt: {
+          type: 'string',
+          description: 'The user\'s exact request text — shown to the user in the history dialog on hover.',
+        },
+      },
+      required: ['prompt'],
+    },
+  },
+  {
+    name: 'end_prompt',
+    description: 'Close the current prompt batch. Call once at the end of a response that used `begin_prompt`. Subsequent edits will be separate undo entries until the next `begin_prompt`.',
+    inputSchema: {
+      type: 'object',
+      properties: {},
+    },
+  },
 ]
 
 // --- Local tool handlers (parser bundle) ---
@@ -449,6 +472,13 @@ are not limited to): x, y, width, height, rotation, flipX, flipY, visible, opaci
 zIndex, scale, state, pivot, fillColor, strokeColor, strokeWidth, content, velocityX, \
 velocityY, movable. When in doubt, use a disambiguating name (e.g., \`self.phaseStep\` \
 instead of \`self.phase\`, \`self.mirrored\` instead of \`self.pivot\`).
+- **Wrap every user prompt in begin_prompt / end_prompt** so the editor records \
+all your edits as ONE undo step labeled with the user's prompt. At the very start \
+of a response that will modify the project, call \`begin_prompt\` with \
+\`{prompt: "<the user's exact request>"}\`. At the end of the response, call \
+\`end_prompt\`. The user's undo history will show one entry per prompt with that \
+text on hover, instead of dozens of per-tool entries that push earlier state out of \
+the 50-entry history cap.
 - The user can see and undo your changes in the editor's undo history.
 `
 

@@ -41,7 +41,7 @@ const bridge = createWsBridge(WS_PORT)
 
 // Tools forwarded to browser (no path param needed — operates on live state)
 const BROWSER_TOOLS = new Set([
-  'get_project', 'list_objects', 'get_script', 'get_states',
+  'get_project', 'list_objects', 'get_object', 'get_script', 'get_states',
   'set_property', 'update_script', 'add_object', 'remove_object', 'update_cell',
   'clone_object', 'bulk_set_property',
 ])
@@ -440,6 +440,15 @@ before writing scripts. The Purl DSL has specific syntax — never guess.
 - Changes made via these tools appear **instantly** in the user's browser.
 - Always call \`dsl_reference\` with category "events" or "actions" before writing scripts \
 if you are unsure about syntax. Never invent event or action names.
+- **Custom object variables must not collide with built-in properties.** Before using \
+\`set self.<name>\` with any new custom variable, call \`dsl_reference\` with category \
+"properties" and confirm \`<name>\` is not listed. Collisions fail silently — e.g., \
+\`set self.pivot 0\` overwrites the built-in \`pivot\` ({x, y}) with a scalar and breaks \
+the component's transform, hiding children with no error. Reserved names include (but \
+are not limited to): x, y, width, height, rotation, flipX, flipY, visible, opacity, \
+zIndex, scale, state, pivot, fillColor, strokeColor, strokeWidth, content, velocityX, \
+velocityY, movable. When in doubt, use a disambiguating name (e.g., \`self.phaseStep\` \
+instead of \`self.phase\`, \`self.mirrored\` instead of \`self.pivot\`).
 - The user can see and undo your changes in the editor's undo history.
 `
 

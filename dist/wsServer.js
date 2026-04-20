@@ -3,11 +3,11 @@
  *
  * Runs on localhost, accepts a single browser connection (first wins).
  * Forwards tool requests to the browser and returns responses.
- * If the requested port is in use, tries up to 10 consecutive ports.
+ * Binds the requested port strictly — if it's busy, exits with a clear error.
+ * (Sibling MCP processes are killed on startup; see index.ts.)
  */
 import { WebSocketServer, WebSocket } from 'ws';
 const REQUEST_TIMEOUT_MS = 10_000;
-const MAX_PORT_ATTEMPTS = 10;
 export function createWsBridge(port) {
     let activeConnection = null;
     let requestId = 0;
@@ -58,24 +58,21 @@ export function createWsBridge(port) {
             });
         });
     }
-    function tryListen(p, attempt) {
-        const server = new WebSocketServer({ port: p });
-        server.on('error', (err) => {
-            if (err.code === 'EADDRINUSE' && attempt < MAX_PORT_ATTEMPTS) {
-                server.close();
-                tryListen(p + 1, attempt + 1);
-            }
-            else {
-                console.error(`[WS Bridge] Failed to listen: ${err.message}`);
-            }
-        });
-        server.on('listening', () => {
-            wss = server;
-            console.error(`[WS Bridge] Listening on ws://localhost:${p}`);
-            setupConnections(server);
-        });
-    }
-    tryListen(port, 1);
+    const server = new WebSocketServer({ port });
+    server.on('error', (err) => {
+        if (err.code === 'EADDRINUSE') {
+            console.error(`[WS Bridge] Port ${port} is already in use. Another purl-mcp-server may be running — kill it and retry.`);
+        }
+        else {
+            console.error(`[WS Bridge] Failed to listen: ${err.message}`);
+        }
+        process.exit(1);
+    });
+    server.on('listening', () => {
+        wss = server;
+        console.error(`[WS Bridge] Listening on ws://localhost:${port}`);
+        setupConnections(server);
+    });
     return {
         async forward(tool, params) {
             if (!activeConnection || activeConnection.readyState !== WebSocket.OPEN) {

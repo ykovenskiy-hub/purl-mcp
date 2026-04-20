@@ -34,6 +34,21 @@ export interface ActiveConstraint {
     restNormalX?: number;
     restNormalY?: number;
 }
+export interface PathBindingContext {
+    /** Check if body is path-bound and return its path info, or null if not path-bound. */
+    getPathInfo(bodyId: string): {
+        pathT: number;
+        pathId: string;
+        polyline: Array<{
+            x: number;
+            y: number;
+        }>;
+        pathClosed: boolean;
+        pathLength: number;
+    } | null;
+    /** Apply a pathT delta to a body (updates pathT, re-derives x/y position). */
+    applyPathTDelta(bodyId: string, body: DynamicsObject, delta: number): void;
+}
 export interface ConstraintCorrection {
     dxA: number;
     dyA: number;

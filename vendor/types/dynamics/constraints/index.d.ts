@@ -4,4 +4,4 @@
  * Position-Based Dynamics constraint solver for peg connections.
  */
 export { solveConstraints, anchorToWorld } from './solver';
-export type { ActiveConstraint, ConstraintCorrection } from './types';
+export type { ActiveConstraint, ConstraintCorrection, PathBindingContext } from './types';

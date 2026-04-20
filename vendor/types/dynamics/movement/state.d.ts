@@ -43,6 +43,13 @@ export interface RuntimeState {
     jumped: boolean;
     clickTargetX?: number;
     clickTargetY?: number;
+    pathT: number;
+    pathBound: boolean;
+    pathSpeed: number;
+    pathLastDirection: number;
+    pathFrontT: number;
+    pathRearT: number;
+    pathFacingAngle: number;
     angularVelocity: number;
     designRotation: number;
     lastContactPoints?: Array<{
@@ -79,6 +86,14 @@ export declare function getNextBreadcrumb(followerId: string, followerX: number,
 } | null;
 /** Clear all breadcrumb state (call on engine stop) */
 export declare function clearBreadcrumbs(): void;
+/** Record rigid trail point for a target (call each frame after movement) */
+export declare function recordRigidTrail(targetId: string, x: number, y: number, rotation: number): void;
+/** Get position on rigid trail at a given arc-length distance behind the head */
+export declare function getRigidTrailPosition(targetId: string, distance: number): {
+    x: number;
+    y: number;
+    rotation: number;
+} | null;
 /** Get all breadcrumb trail data for debug visualization */
 export declare function getDebugBreadcrumbs(): Array<{
     targetId: string;
@@ -121,11 +136,12 @@ export declare function addPendingImpulse(objectId: string, vx: number, vy: numb
 export declare function drainPendingImpulses(): Map<string, PendingImpulse>;
 /**
  * Record a collision event (mover hit blocker).
- * Deduplicated per frame - same pair won't fire multiple events.
+ * Only fires on first contact — sustained contact is not re-reported.
  */
 export declare function addCollisionEvent(moverId: string, blockerId: string): void;
 /**
  * Drain all collision events (returns and clears the array).
+ * Also updates activeContacts to reflect this frame's contacts.
  */
 export declare function drainCollisionEvents(): CollisionRecord[];
 /**
@@ -140,6 +156,8 @@ export declare function getRuntimeState(id: string): RuntimeState | undefined;
  * Clear all runtime state (call when exiting play mode)
  */
 export declare function clearRuntimeStates(): void;
+export declare function removeRuntimeState(id: string): void;
+export declare function getRuntimeStateCount(): number;
 /**
  * Set click-to-move target for an object
  */
@@ -156,6 +174,14 @@ export declare function clearClickTarget(objectId: string): void;
  * Check if an object has a click-to-move target
  */
 export declare function hasClickTarget(objectId: string): boolean;
+/**
+ * Get all active click targets for debug visualization.
+ */
+export declare function getDebugClickTargets(): Array<{
+    objectId: string;
+    x: number;
+    y: number;
+}>;
 /**
  * Get cell X coordinate for an object
  */
@@ -189,7 +215,7 @@ export declare function isAnyObjectMoving(): boolean;
  */
 export declare function getMovementState(objectId: string): MovementState | undefined;
 export interface MovementEvent {
-    type: 'move' | 'stop' | 'jump' | 'land' | 'rotate' | 'stopRotate';
+    type: 'move' | 'stop' | 'arrive' | 'jump' | 'land' | 'rotate' | 'stopRotate';
     objectId: string;
     direction?: 'up' | 'down' | 'left' | 'right' | 'forward' | 'backward';
     angle?: number;

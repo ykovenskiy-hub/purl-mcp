@@ -11,7 +11,6 @@ import type { SpatialGrid } from '../collision';
 export declare function processContinuousMovement(obj: DynamicsObject, grid: GridConfig | null, deltaTime: number, allObjects?: DynamicsObject[], spatialGrid?: SpatialGrid, options?: {
     skipAngular?: boolean;
     skipCollision?: boolean;
-    zoneFriction?: number;
     gravityOverride?: {
         gx: number;
         gy: number;

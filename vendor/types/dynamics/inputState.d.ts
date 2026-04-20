@@ -35,9 +35,17 @@ export declare class InputState {
      */
     detach(): void;
     /**
-     * Check if a key is currently held
+     * Check if a key is currently held (physical or synthetic)
      */
     isHeld(key: string): boolean;
+    /**
+     * Check if a key is held via physical keyboard only (excludes synthetic)
+     */
+    isPhysicallyHeld(key: string): boolean;
+    /**
+     * Check if a key is held via synthetic press only (excludes physical)
+     */
+    isSyntheticallyHeld(key: string): boolean;
     /**
      * Check if any of the given keys are held
      */
@@ -47,18 +55,25 @@ export declare class InputState {
      */
     getHeldKeys(): Set<string>;
     /**
+     * Get keys for a specific object based on its input types.
+     * Physical keys come from the keyboard. Synthetic keys come from
+     * per-object press/release + global (cell-level) press/release.
+     */
+    getKeysForInput(includePhysical: boolean, includeSynthetic: boolean, objectId?: string): Set<string>;
+    /**
      * Clear all held keys (useful when losing focus)
      */
     clear(): void;
     private syntheticKeys;
+    private objectSyntheticKeys;
     /**
-     * Inject a synthetic key press (adds to heldKeys so dynamics engine sees it)
+     * Inject a synthetic key press, optionally targeted to a specific object.
      */
-    syntheticPress(key: string): void;
+    syntheticPress(key: string, objectId?: string): void;
     /**
-     * Inject a synthetic key release (removes from heldKeys only if not physically held)
+     * Inject a synthetic key release, optionally targeted to a specific object.
      */
-    syntheticRelease(key: string): void;
+    syntheticRelease(key: string, objectId?: string): void;
     /**
      * Get movement direction from gamepad left stick + d-pad.
      * Returns digital direction (0/1/-1 per axis) consistent with keyboard input.
@@ -71,6 +86,11 @@ export declare class InputState {
      * Check if a gamepad button is currently pressed.
      */
     isGamepadButtonPressed(padIndex: number | undefined, buttonIndex: number): boolean;
+    /**
+     * Evaluate a single pad binding token against live gamepad state.
+     * Tokens: "lstick-up|down|left|right", "rstick-*", "dpad-*", "button:N".
+     */
+    isGamepadBindingActive(token: string, padIndex?: number, deadZone?: number): boolean;
     /**
      * Poll gamepad buttons and return edge transitions (press/release) since last poll.
      * Call once per frame. Returns empty array if no gamepad connected.

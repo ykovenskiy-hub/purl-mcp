@@ -121,7 +121,14 @@ export interface StateGroup {
 export type ViewportAnchorPoint = 'top-left' | 'top' | 'top-right' | 'left' | 'center' | 'right' | 'bottom-left' | 'bottom' | 'bottom-right';
 /** Anchor fraction mapping: [x, y] where 0=left/top, 0.5=center, 1=right/bottom */
 export declare const ANCHOR_FRACTIONS: Record<ViewportAnchorPoint, [number, number]>;
-export type PrimeType = 'text' | 'textbox' | 'shape' | 'line' | 'grid' | 'audio' | 'mask' | 'peg' | 'spring' | 'viewport' | 'anchor' | 'emitter';
+export type PrimeType = 'text' | 'textbox' | 'shape' | 'line' | 'grid' | 'audio' | 'mask' | 'peg' | 'spring' | 'viewport' | 'anchor' | 'emitter' | 'ramp';
+export type RampEdgeType = 'from' | 'to' | 'pass';
+export interface RampEdgeConfig {
+    top: RampEdgeType;
+    bottom: RampEdgeType;
+    left: RampEdgeType;
+    right: RampEdgeType;
+}
 export type PegType = 'pin' | 'weld';
 export type EmitterShape = 'circle' | 'rectangle';
 export type EmitterSizeMode = 'contain' | 'area';
@@ -164,6 +171,7 @@ export interface Prime {
     phase?: boolean | {
         affects: string[];
     };
+    level?: number;
     rotatable?: boolean;
     follow?: {
         targetId: string;
@@ -225,7 +233,8 @@ export interface Prime {
     trailOpacity?: number;
     trailColor?: string;
     trailScale?: number;
-    trailSpacing?: number;
+    trailWidth?: number;
+    trailFade?: number;
     flipX?: boolean;
     flipY?: boolean;
     rotation?: number;
@@ -243,6 +252,7 @@ export interface Prime {
     arrowHead?: 'none' | 'start' | 'end' | 'both';
     audioType?: 'sfx' | 'dialog' | 'music' | 'ambient';
     src?: string;
+    srcName?: string;
     volume?: number;
     loop?: boolean;
     autoplay?: boolean;
@@ -295,6 +305,9 @@ export interface Prime {
     springStiffness?: number;
     springDamping?: number;
     springBreakForce?: number;
+    rampFromLevel?: number;
+    rampToLevel?: number;
+    rampEdges?: RampEdgeConfig;
     emitterShape?: EmitterShape;
     emitterSizeMode?: EmitterSizeMode;
     emitterRate?: number;
@@ -369,6 +382,7 @@ export interface Component {
     phase?: boolean | {
         affects: string[];
     };
+    level?: number;
     rotatable?: boolean;
     collisionDepth?: number;
     snapToGrid?: string;
@@ -426,6 +440,7 @@ export declare function isPeg(obj: CellObject): boolean;
 export declare function isSpring(obj: CellObject): boolean;
 export declare function isAnchor(obj: CellObject): boolean;
 export declare function isEmitter(obj: CellObject): boolean;
+export declare function isRamp(obj: CellObject): boolean;
 export declare function hasSize(obj: CellObject): boolean;
 export declare function hasText(obj: CellObject): boolean;
 export declare function hasFill(obj: CellObject): boolean;

@@ -14,7 +14,7 @@
  * not projected or stabilized here.
  */
 import type { DynamicsObject } from '../types';
-import type { ActiveConstraint } from './types';
+import type { ActiveConstraint, PathBindingContext } from './types';
 /**
  * Convert a local anchor (0-1 relative to object bounds) to world coordinates.
  * Accounts for pivot offset and rotation.
@@ -33,4 +33,4 @@ export declare function anchorToWorld(obj: DynamicsObject, anchor: {
  * Velocity derivation (v = Δpos / dt) is handled by the engine after this call,
  * so this function only modifies positions and rotations.
  */
-export declare function solveConstraints(constraints: ActiveConstraint[], deltaTime: number, iterations?: number, draggedIds?: ReadonlySet<string>): string[];
+export declare function solveConstraints(constraints: ActiveConstraint[], deltaTime: number, iterations?: number, draggedIds?: ReadonlySet<string>, pathContext?: PathBindingContext): string[];

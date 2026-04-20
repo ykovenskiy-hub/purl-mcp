@@ -62,6 +62,16 @@ export declare class SpatialGrid {
      */
     getCellsAlongPath(x0: number, y0: number, x1: number, y1: number): string[];
     /**
+     * Query all objects within a radius of a point.
+     * Uses AABB broad-phase then distance check for circular accuracy.
+     * Returns unique object IDs sorted by distance.
+     */
+    queryRadius(x: number, y: number, radius: number, excludeId?: string): Array<{
+        id: string;
+        distance: number;
+        aabb: AABB;
+    }>;
+    /**
      * Check if two AABBs overlap
      */
     private aabbOverlap;

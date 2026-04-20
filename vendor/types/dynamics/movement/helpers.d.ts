@@ -3,16 +3,47 @@
  *
  * Shared utility functions for movement processing.
  */
-import type { DynamicsObject, GridConfig, KeyMapping } from '../types';
+import type { DynamicsObject, GridConfig, KeyMapping, PadMapping } from '../types';
 import type { RuntimeState } from './state';
+import type { SpatialGrid } from '../collision';
+export interface DebugDodgeRod {
+    x: number;
+    y: number;
+    endX: number;
+    endY: number;
+    blocked: boolean;
+    objectId: string;
+}
+export declare function getDebugDodgeRods(): DebugDodgeRod[];
+export declare function clearDebugDodgeRods(): void;
+interface DodgeTargetState {
+    prevDist: number;
+    steerSide: number;
+}
+export declare function getDodgeRayState(moverId: string, targetId: string): DodgeTargetState | undefined;
+export declare function setDodgeRayState(moverId: string, targetId: string, state: DodgeTargetState): void;
+export declare function clearDodgeRayStates(): void;
+export declare function pushDebugDodgeRod(x: number, y: number, endX: number, endY: number, blocked: boolean, objectId: string): void;
 /**
- * Get the key mapping for an object based on its inputBinding
+ * Get effective radius for an object — uses collision shape if available,
+ * falls back to width/height. Excludes ghost children from component bounds.
+ */
+export declare function getEffectiveRadius(obj: DynamicsObject, allObjects?: DynamicsObject[]): number;
+/**
+ * Get the key mapping for an object based on its inputBinding.
+ * Fills in defaults for any axes not explicitly bound (legacy objects may
+ * lack jump/pull fields).
  */
 export declare function getKeysForObject(obj: DynamicsObject): KeyMapping;
+/**
+ * Get the pad mapping for an object. Fills defaults for missing axes.
+ */
+export declare function getPadForObject(obj: DynamicsObject): PadMapping;
 /**
  * Check if object should read keyboard input
  */
 export declare function shouldReadKeyboard(obj: DynamicsObject): boolean;
+export declare function shouldReadScript(obj: DynamicsObject): boolean;
 /**
  * Check if object should read gamepad input
  */
@@ -33,7 +64,7 @@ export interface AIIntent {
  * Returns the desired direction and intensity, independent of movement model.
  * Returns null when: no follow, target not found, inside dead zone (arrived).
  */
-export declare function getAIIntent(obj: DynamicsObject, allObjects: DynamicsObject[]): AIIntent | null;
+export declare function getAIIntent(obj: DynamicsObject, allObjects: DynamicsObject[], deltaTime?: number): AIIntent | null;
 /**
  * Convert AI intent into virtual input {x, y} matching the object's movement model.
  * For non-forward objects: direct projection.
@@ -48,7 +79,7 @@ export declare function aiIntentToInput(intent: AIIntent, obj: DynamicsObject): 
  * Returns normalized direction for straight-line movement.
  * When arrived, returns target position for snapping.
  */
-export declare function getClickTargetDirection(obj: DynamicsObject, runtime: RuntimeState): {
+export declare function getClickTargetDirection(obj: DynamicsObject, runtime: RuntimeState, deltaTime?: number, allObjects?: DynamicsObject[]): {
     x: number;
     y: number;
     arrived: boolean;
@@ -56,7 +87,7 @@ export declare function getClickTargetDirection(obj: DynamicsObject, runtime: Ru
     targetY?: number;
 };
 /**
- * Get input direction from gamepad
+ * Get input direction from gamepad using the object's pad binding.
  */
 export declare function getGamepadInputDirection(obj: DynamicsObject): {
     x: number;
@@ -65,7 +96,7 @@ export declare function getGamepadInputDirection(obj: DynamicsObject): {
 /**
  * Get input direction from held keys
  */
-export declare function getInputDirection(keys: KeyMapping): {
+export declare function getInputDirection(keys: KeyMapping, heldKeySet?: Set<string>): {
     x: number;
     y: number;
 };
@@ -165,12 +196,28 @@ export declare function findOccupantAtCells<T extends {
     cellY: number;
 }>, moverId: string, allObjects: T[], grid: GridConfig, gridId: string): T | null;
 /**
+ * Cast a "rod" (line segment) from object center in the given direction.
+ * Returns true if the rod hits a blocker, false if clear.
+ * Uses spatial grid for broad-phase, then line-vs-AABB for each candidate.
+ */
+export declare function probeDirection(obj: DynamicsObject, dirX: number, dirY: number, distance: number, allObjects: DynamicsObject[], spatialGrid: SpatialGrid): boolean;
+/**
+ * Adjust a movement direction to avoid obstacles.
+ * Casts the rod in the desired direction; if blocked, sweeps ±N° to find
+ * the minimum deviation that clears. Returns adjusted direction.
+ */
+export declare function applyDodge(obj: DynamicsObject, dirX: number, dirY: number, distance: number, allObjects: DynamicsObject[], spatialGrid: SpatialGrid): {
+    dirX: number;
+    dirY: number;
+};
+/**
  * Update velocity based on input and physics
  */
-export declare function updateVelocity(vx: number, vy: number, inputX: number, inputY: number, maxSpeed: number, accel: number, decel: number, gravity: number, wind: number, windAngle: number, dt: number, contactNormalX?: number, contactNormalY?: number, mass?: number, area?: number, airResistance?: number, gravityScale?: number, windScale?: number, dragScale?: number, gravityOverride?: {
+export declare function updateVelocity(vx: number, vy: number, inputX: number, inputY: number, maxSpeed: number, accel: number, decel: number, gravity: number, wind: number, windAngle: number, dt: number, contactNormalX?: number, contactNormalY?: number, mass?: number, area?: number, drag?: number, gravityScale?: number, windScale?: number, dragScale?: number, gravityOverride?: {
     gx: number;
     gy: number;
 }): {
     velocityX: number;
     velocityY: number;
 };
+export {};

@@ -8,6 +8,8 @@
  */
 import type { DynamicsObject, GridConfig, DynamicsCallbacks, CameraConfig, CameraState, PegConstraintDef } from './types';
 import type { EasingFunction } from '../utils/interpolate';
+import { type DebugDodgeRod } from './movement/helpers';
+import { type CollisionBitmap } from './movement/pathfinding';
 import type { Point } from '../utils/collisionShapes';
 export declare class DynamicsEngine {
     private objects;
@@ -17,12 +19,14 @@ export declare class DynamicsEngine {
     private running;
     private camera;
     private overlapTracker;
+    private boundsState;
     private spatialGrid;
     private blockingCount;
     private zoneObjects;
+    private rampObjects;
+    private rampStates;
     private constraints;
     private constraintDefs;
-    private pathConstraints;
     private transportTargets;
     /**
      * Start the dynamics engine
@@ -128,11 +132,27 @@ export declare class DynamicsEngine {
      * Used by animation engine to skip position writes for physics objects.
      */
     hasObject(objectId: string): boolean;
+    /** Get follow distance for an object (undefined if not following) */
+    getFollowDistance(objectId: string): number | undefined;
+    /** Set follow distance for an object (no-op if not following) */
+    setFollowDistance(objectId: string, distance: number): boolean;
     /**
      * Find the zone containing a point. If multiple zones contain the point,
      * the smallest (by area) wins. Returns null if no zone contains the point.
      */
     private findContainingZone;
+    /** Transform world position to ramp's local frame (0-1), accounting for rotation */
+    private worldToRampLocal;
+    /** Get collision shape vertices for ramp testing (respects collisionDepth) */
+    private getRampTestVertices;
+    /** Check if any vertex in local space is near a specific edge (within margin) */
+    private isTouchingEdge;
+    /** Compute interpolated level for visual scale gradient.
+     *  Gradient runs toward the 'to' edge(s). Returns interpolated level, or undefined if no 'to' edge. */
+    private computeRampScaleLevel;
+    /** Process ramp level transitions for all movable objects */
+    private processRamps;
+    /** Check if a mover is currently in a ramp and touching a 'from' edge (dual-level collision) */
     /**
      * Update a single property on an object.
      * Called by property change notification callback.
@@ -179,18 +199,6 @@ export declare class DynamicsEngine {
      * This updates the internal state and clears momentum.
      */
     setPosition(objectId: string, x: number, y: number): boolean;
-    /** Set resolved world-space path points for path-constrained movement */
-    setPathConstraint(objectId: string, points: {
-        x: number;
-        y: number;
-    }[]): void;
-    /** Remove path constraint for an object */
-    clearPathConstraint(objectId: string): void;
-    /** Project a position onto a stored path constraint. Returns original if no constraint. */
-    constrainToPath(objectId: string, x: number, y: number): {
-        x: number;
-        y: number;
-    };
     /**
      * Wake any sleeping movable objects near a moved object's old or new position.
      * This handles the case where a blocker is dragged away from resting objects.
@@ -247,6 +255,33 @@ export declare class DynamicsEngine {
      */
     setClickTargetForAll(x: number, y: number): void;
     /**
+     * Query objects within radius using spatial grid. O(nearby cells) not O(all objects).
+     */
+    queryNearby(x: number, y: number, radius: number, excludeId?: string): Array<{
+        id: string;
+        distance: number;
+    }>;
+    /**
+     * Build/rebuild the static collision bitmap for A* pathfinding.
+     */
+    buildPathfindingBitmap(): void;
+    /**
+     * Get the collision bitmap (rebuilds if dirty).
+     */
+    getCollisionBitmap(): CollisionBitmap | null;
+    /**
+     * Find a random unblocked position within radius of a center point.
+     * Uses the pathfinding bitmap. Returns null if no free cell found.
+     */
+    randomFree(cx: number, cy: number, radius: number): {
+        x: number;
+        y: number;
+    } | null;
+    /**
+     * Mark collision bitmap as needing rebuild (static blocker changed).
+     */
+    invalidatePathfindingBitmap(): void;
+    /**
      * Set a click-to-move target from script (moveTo command).
      * Works even if the object doesn't have input: 'click' — continuous.ts
      * checks for existing click targets as a fallback.
@@ -272,6 +307,11 @@ export declare class DynamicsEngine {
         x: number;
         y: number;
     } | null;
+    /**
+     * Recursively cascade position/rotation changes to all descendants.
+     * Handles arbitrarily nested component hierarchies.
+     */
+    private cascadeChildPositions;
     /**
      * Main tick - called every frame
      */
@@ -304,6 +344,8 @@ export declare class DynamicsEngine {
         vy: number;
         av: number;
     }>): void;
+    /** Get ramp scale level for visual gradient (interpolated between fromLevel and toLevel). */
+    getRampScaleLevel(objectId: string): number | undefined;
     /**
      * Get collision shapes in world space for debug visualization.
      */
@@ -313,5 +355,10 @@ export declare class DynamicsEngine {
         blocking: boolean;
         movable: boolean;
     }>;
+    /**
+     * Get dodge rod probe data for debug visualization.
+     * Returns rods accumulated since last call, then clears them.
+     */
+    getDebugDodgeRods(): DebugDodgeRod[];
 }
 export declare const dynamicsEngine: DynamicsEngine;

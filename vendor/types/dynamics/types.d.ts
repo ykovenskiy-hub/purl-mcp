@@ -9,6 +9,7 @@ export type InputType = 'keyboard' | 'click' | 'gamepad' | 'script';
 export interface InputBinding {
     player?: 1 | 2;
     keys?: KeyMapping;
+    pad?: PadMapping;
     padIndex?: number;
     deadZone?: number;
 }
@@ -23,6 +24,7 @@ export declare const GAMEPAD_BUTTONS: {
     readonly DPAD_RIGHT: 15;
 };
 export declare const DEFAULT_PLAYER_KEYS: Record<1 | 2, KeyMapping>;
+export declare const DEFAULT_PAD_MAPPING: PadMapping;
 export interface DynamicsObject {
     id: string;
     x: number;
@@ -59,10 +61,12 @@ export interface DynamicsObject {
         affects: string[];
     };
     ghost?: boolean;
+    visible?: boolean;
     pullable?: boolean;
     phase?: boolean | {
         affects: string[];
     };
+    level?: number;
     rotatable?: boolean;
     props?: Record<string, string | number | boolean>;
     follow?: {
@@ -74,20 +78,36 @@ export interface DynamicsObject {
         arrival?: number;
         delay?: number;
         delayRemaining?: number;
+        center?: boolean;
+        rigid?: boolean;
     };
     initialVelocityX?: number;
     initialVelocityY?: number;
     zone?: ZoneConfig;
+    ramp?: RampConfig;
     parentComponentId?: string;
+    dodgeWidth?: number;
+    dodgeHeight?: number;
     tags?: string[];
+    pathPolyline?: Array<{
+        x: number;
+        y: number;
+    }>;
+    pathClosed?: boolean;
+    pathId?: string;
+    visualOnly?: boolean;
+    rampDualLevel?: {
+        fromLevel: number;
+        toLevel: number;
+    };
+    rampScaleT?: number;
 }
 export interface ZoneConfig {
     enabled?: boolean;
     gravity?: number;
     wind?: number;
     windAngle?: number;
-    airResistance?: number;
-    friction?: number;
+    drag?: number;
     flowX?: number;
     flowY?: number;
     gravityCenter?: {
@@ -95,6 +115,17 @@ export interface ZoneConfig {
         y: number;
     };
     affectTags?: string[];
+}
+export type RampEdgeType = 'from' | 'to' | 'pass';
+export interface RampConfig {
+    fromLevel: number;
+    toLevel: number;
+    edges: {
+        top: RampEdgeType;
+        bottom: RampEdgeType;
+        left: RampEdgeType;
+        right: RampEdgeType;
+    };
 }
 export interface MovableConfig {
     speed: number;
@@ -104,7 +135,13 @@ export interface MovableConfig {
     axis?: 'x' | 'y' | 'forward';
     steerRate?: number;
     traction?: boolean;
+    stable?: boolean;
+    dodge?: number;
     pathName?: string;
+    pathReverse?: boolean;
+    pathContactSpan?: number;
+    faceTravel?: boolean;
+    turnaround?: boolean;
     faceMovement?: boolean;
     keys?: KeyMapping;
 }
@@ -118,6 +155,16 @@ export interface KeyMapping {
     down: string[];
     left: string[];
     right: string[];
+    jump: string[];
+    pull: string[];
+}
+export interface PadMapping {
+    up: string[];
+    down: string[];
+    left: string[];
+    right: string[];
+    jump: string[];
+    pull: string[];
 }
 export declare const DEFAULT_KEY_MAPPING: KeyMapping;
 export interface MovementState {
@@ -137,6 +184,7 @@ export interface StateUpdate {
     x?: number;
     y?: number;
     rotation?: number;
+    level?: number;
     movementState?: MovementState;
 }
 export interface GridConfig {
@@ -151,7 +199,7 @@ export interface GridConfig {
     gravity?: number;
     wind?: number;
     windAngle?: number;
-    airResistance?: number;
+    drag?: number;
     timeScale?: number;
     gravityCenter?: {
         x: number;
@@ -199,11 +247,15 @@ export interface CollideEvent {
     blockerId: string;
 }
 export interface MoveEvent {
-    type: 'move' | 'stop' | 'jump' | 'land' | 'rotate' | 'stopRotate';
+    type: 'move' | 'stop' | 'arrive' | 'jump' | 'land' | 'rotate' | 'stopRotate';
     objectId: string;
     direction?: 'up' | 'down' | 'left' | 'right' | 'forward' | 'backward';
     angle?: number;
     rotationDirection?: 'cw' | 'ccw';
+}
+export interface BoundsEvent {
+    objectId: string;
+    boundary: 'left' | 'right' | 'top' | 'bottom';
 }
 export interface DynamicsCallbacks {
     onStateUpdate: (updates: StateUpdate[]) => void;
@@ -212,6 +264,7 @@ export interface DynamicsCallbacks {
     onOverlapChange?: (events: OverlapEvent[]) => void;
     onCollide?: (events: CollideEvent[]) => void;
     onMoveChange?: (events: MoveEvent[]) => void;
+    onBoundsChange?: (events: BoundsEvent[]) => void;
     /** Called when a peg constraint breaks (force exceeded breakForce). */
     onPegBreak?: (events: PegBreakEvent[]) => void;
     /** Called each physics tick for objects with onTick handlers. Raw (unscaled) deltaTime + cell timeScale. */

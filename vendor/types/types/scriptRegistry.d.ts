@@ -89,23 +89,23 @@ export declare const EVENTS: {
     };
     readonly onOverlap: {
         readonly description: "When overlap starts";
-        readonly longDescription: "Triggers when this object begins overlapping another object. At least one object in the pair must have sensor enabled. The other object is accessible via the `other` variable — read properties with other.property, check tags with `if other hasTag #tag`, and read custom variables (e.g., other.score).";
+        readonly longDescription: "Triggers when this object begins overlapping another object. At least one object in the pair must have sensor enabled. The other object is accessible via the `other` variable — read properties with other.property, check tags with `if other is #tag`, and read custom variables (e.g., other.score).";
         readonly validFor: ["object"];
-        readonly example: "onOverlap:\n  if other hasTag #coin:\n    hide other\n    set score score + 1";
+        readonly example: "onOverlap:\n  if other is #coin:\n    hide other\n    set score score + 1";
         readonly notes: "Requires sensor property. Fires once on overlap start. `other` references the overlapping object — access its properties and custom variables.";
     };
     readonly onOverlapEnd: {
         readonly description: "When overlap ends";
-        readonly longDescription: "Triggers when this object stops overlapping another object that it was previously overlapping. The other object is accessible via the `other` variable — same access as onOverlap (other.property, other hasTag, other.customVar).";
+        readonly longDescription: "Triggers when this object stops overlapping another object that it was previously overlapping. The other object is accessible via the `other` variable — same access as onOverlap (other.property, other is #tag, other.customVar).";
         readonly validFor: ["object"];
         readonly example: "onOverlapEnd:\n  set inZone false";
         readonly notes: "Fires when objects that were overlapping separate. `other` references the departing object.";
     };
     readonly onCollide: {
         readonly description: "When collision occurs";
-        readonly longDescription: "Triggers when this object collides with a blocking object. Unlike onOverlap (which requires sensor), onCollide fires when physics collision resolution happens. The other object is accessible via the `other` variable — read its properties with other.property (other.name, other.x, other.visible) or check tags with `if other hasTag #tag`. You can also read custom object variables from the other object (e.g., other.damage).";
+        readonly longDescription: "Triggers when this object collides with a blocking object. Unlike onOverlap (which requires sensor), onCollide fires when physics collision resolution happens. The other object is accessible via the `other` variable — read its properties with other.property (other.name, other.x, other.visible) or check tags with `if other is #tag`. You can also read custom object variables from the other object (e.g., other.damage).";
         readonly validFor: ["object"];
-        readonly example: "onCollide:\n  if other hasTag #missile:\n    set self.health self.health - other.damage\n    destroy other";
+        readonly example: "onCollide:\n  if other is #missile:\n    set self.health self.health - other.damage\n    destroy other";
         readonly notes: "Fires on physical collision with blocking objects. `other` references the colliding object — access its properties and custom variables. Works on both movers and blockers.";
     };
     readonly onBreak: {
@@ -183,12 +183,40 @@ export declare const EVENTS: {
         readonly example: "onStop:\n  set self.state \"idle\"";
         readonly notes: "Fires once when object comes to rest. Does not fire if object was already stopped.";
     };
+    readonly onArrive: {
+        readonly description: "When moveTo destination is reached";
+        readonly longDescription: "Triggers when this object reaches its moveTo target. Unlike onStop, does not fire when the object merely pauses (e.g., rotating at a path bend or hitting a wall). Use this for waypoint patrol, pickup collection, or any logic that depends on actual arrival.";
+        readonly validFor: ["object"];
+        readonly example: "onArrive:\n  log \"Arrived!\"\n  moveTo self NextWaypoint";
+        readonly notes: "Only fires when a moveTo or click-to-move target is reached. Does not fire for follow arrivals.";
+    };
     readonly onStopRotate: {
         readonly description: "When rotation stops";
         readonly longDescription: "Triggers when this object stops rotating. Useful for stopping rotation-linked animations or resetting state after steering.";
         readonly validFor: ["object"];
         readonly example: "onStopRotate:\n  stop animate self \"tracks\"";
         readonly notes: "Fires once when object stops rotating. Does not fire if object was already not rotating.";
+    };
+    readonly onBounds: {
+        readonly description: "When object crosses cell boundary";
+        readonly longDescription: "Fires when this object moves past the edge of the cell. Use optional direction filter to detect specific edges. Fires once per crossing — not every frame while outside.";
+        readonly validFor: ["object"];
+        readonly example: "onBounds:\n  destroy self\n\nonBounds \"left\":\n  set self.x Cell.width";
+        readonly parameters: [{
+            readonly name: "direction";
+            readonly type: "string";
+            readonly description: "\"left\", \"right\", \"top\", \"bottom\"";
+            readonly optional: true;
+        }];
+        readonly notes: "Only fires for movable objects. Direction filter matches the edge crossed.";
+    };
+    readonly onAudioEnd: {
+        readonly description: "When audio playback finishes";
+        readonly longDescription: "Fires when a non-looping audio object finishes playing. Useful for sequencing tracks or triggering actions after sound effects complete.";
+        readonly validFor: ["object"];
+        readonly example: "onAudioEnd:\n  play NextTrack";
+        readonly parameters: [];
+        readonly notes: "Only fires for non-looping audio. Looping audio never ends naturally.";
     };
     readonly onTick: {
         readonly description: "Every physics frame";
@@ -426,11 +454,16 @@ export declare const ACTIONS: {
         readonly notes: "Use for \"quit game\" buttons or end-of-game flows.";
     };
     readonly restart: {
-        readonly description: "Restart from start cell";
-        readonly longDescription: "Navigates to the start cell and performs a full reset (objects + variables). Equivalent to \"goto StartCell fresh\". Use for \"game over / play again\" functionality.";
-        readonly example: "onClick:\n  restart";
-        readonly parameters: [];
-        readonly notes: "Resets everything and goes back to the start cell. For staying on the current cell, use \"reset objects\" or \"reset fresh\" instead.";
+        readonly description: "Restart from start cell or current cell";
+        readonly longDescription: "Plain `restart` navigates to the start cell and performs a full reset (objects + variables). `restart cell` resets the current cell (objects + variables) without leaving it.";
+        readonly example: "onClick:\n  restart          // back to start cell\n  restart cell     // restart current cell";
+        readonly parameters: [{
+            readonly name: "cell";
+            readonly type: "keyword";
+            readonly optional: true;
+            readonly description: "If specified, restarts current cell instead of going to start";
+        }];
+        readonly notes: "`restart` = go to start cell + full reset. `restart cell` = stay on current cell + full reset.";
     };
     readonly save: {
         readonly description: "Save game to named slot";
@@ -494,54 +527,6 @@ export declare const ACTIONS: {
             readonly optional: true;
         }];
         readonly notes: "Grid cell data is cleared automatically on reset(\"session\").";
-    };
-    readonly 'enable pageable': {
-        readonly description: "Create pageable sequence";
-        readonly longDescription: "Creates a pageable component that cycles through its children, showing one at a time. When created, the first item is shown and others are hidden. Use next/prev to navigate. You can either list items explicitly or omit the brackets to use the component's children order.";
-        readonly example: "enable Slideshow pageable [Intro, Step1, Step2, Step3]\n// Or use children order:\nenable Slideshow pageable";
-        readonly parameters: [{
-            readonly name: "target";
-            readonly type: "string";
-            readonly description: "Component name, self, siblings, children, #tag";
-        }, {
-            readonly name: "items";
-            readonly type: "string[]";
-            readonly description: "List of object names to cycle through (optional - omit brackets to use component children)";
-        }];
-        readonly notes: "First item shown by default. Omit [items] to use the component's children sorted by z-index.";
-    };
-    readonly next: {
-        readonly description: "Next pageable item";
-        readonly longDescription: "Advances to the next item in a pageable. Hides the current item and shows the next one. Use \"wrap\" to loop from last to first, or \"else\" for end action.";
-        readonly example: "next Slideshow with fade wrap";
-        readonly parameters: [{
-            readonly name: "target";
-            readonly type: "string";
-            readonly description: "Pageable name";
-        }];
-        readonly notes: "Add \"wrap\" to loop, or \"else <action>\" for end behavior.";
-    };
-    readonly prev: {
-        readonly description: "Previous pageable item";
-        readonly longDescription: "Goes back to the previous item in a pageable. Hides the current item and shows the previous one. Use \"wrap\" to loop from first to last, or \"else\" for start action.";
-        readonly example: "prev Slideshow with fade wrap";
-        readonly parameters: [{
-            readonly name: "target";
-            readonly type: "string";
-            readonly description: "Pageable name";
-        }];
-        readonly notes: "Add \"wrap\" to loop, or \"else <action>\" for start behavior.";
-    };
-    readonly wrap: {
-        readonly description: "Wrap pageable to first item";
-        readonly longDescription: "Wraps a pageable back to its first item. Useful inside \"else\" blocks of next/prev to wrap AND perform additional actions.";
-        readonly example: "next Slideshow else:\n  wrap Slideshow\n  show LoopIndicator";
-        readonly parameters: [{
-            readonly name: "target";
-            readonly type: "string";
-            readonly description: "Pageable name to wrap";
-        }];
-        readonly notes: "Can be used standalone or inside else blocks. Supports transitions: wrap Slideshow with fade";
     };
     readonly shout: {
         readonly description: "Broadcast message";
@@ -610,6 +595,22 @@ export declare const ACTIONS: {
             readonly optional: true;
         }];
         readonly notes: "All synthetic keys are auto-released on play mode exit.";
+    };
+    readonly openUrl: {
+        readonly description: "Open URL in browser";
+        readonly longDescription: "Opens a URL in the browser. By default replaces the current window. Add \"newTab\" to open in a new tab instead. The URL can be a string literal, a variable, or a concatenated expression.";
+        readonly example: "openUrl \"https://example.com\"\nopenUrl \"https://example.com/user/\" + playerId newTab\nopenUrl myUrl";
+        readonly parameters: [{
+            readonly name: "url";
+            readonly type: "expression";
+            readonly description: "URL to open (string, variable, or expression)";
+        }, {
+            readonly name: "newTab";
+            readonly type: "keyword";
+            readonly description: "Open in new tab instead of current window";
+            readonly optional: true;
+        }];
+        readonly notes: "Browser popup blockers may prevent new tabs if not triggered by a direct user action (e.g. onClick).";
     };
     readonly post: {
         readonly description: "Send data to URL";
@@ -866,18 +867,23 @@ export declare const ACTIONS: {
     };
     readonly stop: {
         readonly description: "Stop animation or audio";
-        readonly longDescription: "Stops any currently playing animation or audio on the target object. For audio, resets playback to the beginning. Supports tags and all-type selectors.";
-        readonly example: "stop Gear\nstop #wheels\nstop Music";
+        readonly longDescription: "Stops any currently playing animation or audio on the target object. For audio, resets playback to the beginning. Use fadeOut to gradually ramp volume to silence before stopping. Supports tags and all-type selectors.";
+        readonly example: "stop Gear\nstop #wheels\nstop Music\nstop Music fadeOut 2000";
         readonly parameters: [{
             readonly name: "target";
             readonly type: "string";
             readonly description: "Object name, #tag, or all type";
+        }, {
+            readonly name: "fadeOut";
+            readonly type: "number";
+            readonly description: "Fade out duration in milliseconds (audio only)";
+            readonly optional: true;
         }];
     };
     readonly play: {
         readonly description: "Play audio";
-        readonly longDescription: "Starts playback on an audio object. Optionally loop continuously. If audio was paused, resumes from the paused position.";
-        readonly example: "play Music\nplay SoundEffect loop";
+        readonly longDescription: "Starts playback on an audio object. Optionally loop continuously. Use fadeIn to gradually ramp volume from silence. If audio was paused, resumes from the paused position.";
+        readonly example: "play Music\nplay SoundEffect loop\nplay Music fadeIn 2000";
         readonly parameters: [{
             readonly name: "target";
             readonly type: "string";
@@ -887,16 +893,26 @@ export declare const ACTIONS: {
             readonly type: "keyword";
             readonly description: "Loop playback continuously";
             readonly optional: true;
+        }, {
+            readonly name: "fadeIn";
+            readonly type: "number";
+            readonly description: "Fade in duration in milliseconds";
+            readonly optional: true;
         }];
     };
     readonly pause: {
         readonly description: "Pause audio";
-        readonly longDescription: "Pauses playback on an audio object. Playback position is preserved and can be resumed with play.";
-        readonly example: "pause Music";
+        readonly longDescription: "Pauses playback on an audio object. Playback position is preserved and can be resumed with play. Use fadeOut to gradually ramp volume to silence before pausing.";
+        readonly example: "pause Music\npause Music fadeOut 1000";
         readonly parameters: [{
             readonly name: "target";
             readonly type: "string";
             readonly description: "Audio object name";
+        }, {
+            readonly name: "fadeOut";
+            readonly type: "number";
+            readonly description: "Fade out duration in milliseconds";
+            readonly optional: true;
         }];
     };
     readonly jump: {
@@ -963,7 +979,7 @@ export declare const ACTIONS: {
     };
     readonly moveTo: {
         readonly description: "Move to position or object (physical)";
-        readonly longDescription: "Moves an object toward a target position or another object using its movable speed. Obeys physics — collides with blockers, affected by gravity. Object must have movable enabled. Fires onMove/onStop events.";
+        readonly longDescription: "Moves an object toward a target position or another object using its movable speed. Obeys physics — collides with blockers, affected by gravity. Object must have movable enabled. Fires onArrive when destination is reached (use onArrive instead of onStop for waypoint logic).";
         readonly example: "moveTo self 0.5 0.5\nmoveTo Player 0.2 0.8\nmoveTo #enemies Player.x Player.y\nmoveTo self Checkpoint\nmoveTo #enemies Flag";
         readonly parameters: [{
             readonly name: "target";
@@ -1063,7 +1079,7 @@ export declare const ACTIONS: {
         }, {
             readonly name: "config";
             readonly type: "keywords";
-            readonly description: "speed N (0.1–2, default 0.3), acceleration N (0.1–20, default 10), deceleration N (0–1, default 0.15), style teleport|slide|fade|jump, axis x|y|forward, steer N (turn rate multiplier, default 1), path ObjectName, facing";
+            readonly description: "speed N (0.1–2, default 0.3), acceleration N (0.1–20, default 10), deceleration N (0–1, default 0.15), style teleport|slide|fade|jump, axis x|y|forward, steer N (turn rate multiplier, default 1), path ObjectName, facing, traction, stable (default on — geometric collision, disable for physics objects), dodge N (obstacle sensing distance, default 0.15 — objects steer around blockers in their path, rod length scales with speed)";
         }];
         readonly notes: "Defaults: speed 0.3, acceleration 10, deceleration 0.15. Deceleration is 0–1 where 0=no decel (coast forever), 1=instant stop. Typical values: 0.05 (icy), 0.15 (normal), 0.5 (heavy). Use axis x or axis y to constrain movement to one axis. Use axis forward for tank-style controls where up/down moves along the facing direction and left/right rotates the body (rotation rate proportional to speed). Use path ObjectName to constrain movement along a path/curve shape. Use facing to auto-rotate the object toward its movement direction (smooth lerp, right side = front at 0°). Mutually exclusive with rotatable physics.";
     };
@@ -1244,7 +1260,7 @@ export declare const ACTIONS: {
         }, {
             readonly name: "distance";
             readonly type: "number";
-            readonly description: "Preferred distance to maintain (0–1, default: 0 = reach target). Object stops when within distance.";
+            readonly description: "Preferred distance to maintain (default: 0 = reach target). Negative values mean overlap. Readable/writable at runtime as followDistance.";
         }, {
             readonly name: "deadZone";
             readonly type: "number";
@@ -1304,7 +1320,7 @@ export declare const ACTIONS: {
     readonly 'enable zone': {
         readonly description: "Create a physics zone";
         readonly longDescription: "Makes an object act as a physics zone — a region where physics rules differ from the cell defaults. Objects whose center point falls inside the zone get overridden physics. Any omitted parameter uses the cell default. Smallest zone wins when multiple zones overlap. Per-object modifiers (gravityScale, windScale, dragScale) still apply as multipliers on top of zone values.";
-        readonly example: "enable WaterRegion zone gravity 0.3 airResistance 0.8\nenable WindTunnel zone wind 5 windAngle 0\nenable IcePatch zone friction 0\nenable Conveyor zone flowX 0.3\nenable SpacePocket zone gravity 0 airResistance 0\nenable WaterRegion zone gravity 0.3 affects #swimmer\nenable WindTunnel zone wind 5 affects #light #paper";
+        readonly example: "enable WaterRegion zone gravity 0.3 drag 0.8\nenable WindTunnel zone wind 5 windAngle 0\nenable IcePatch zone drag 0\nenable Conveyor zone flowX 0.3\nenable SpacePocket zone gravity 0 drag 0\nenable WaterRegion zone gravity 0.3 affects #swimmer\nenable WindTunnel zone wind 5 affects #light #paper";
         readonly parameters: [{
             readonly name: "target";
             readonly type: "string";
@@ -1325,14 +1341,9 @@ export declare const ACTIONS: {
             readonly description: "Override cell wind direction in degrees (0=right, 90=down, 0–360)";
             readonly optional: true;
         }, {
-            readonly name: "airResistance";
+            readonly name: "drag";
             readonly type: "number";
             readonly description: "Override cell drag coefficient (0–1, 0=vacuum, 1=thick)";
-            readonly optional: true;
-        }, {
-            readonly name: "friction";
-            readonly type: "number";
-            readonly description: "Override contact friction (0–1, 0=ice, 1=sticky)";
             readonly optional: true;
         }, {
             readonly name: "flowX";
@@ -1535,6 +1546,36 @@ export declare const ACTIONS: {
         }];
         readonly notes: "Coordinates use the mask's coordinate system (0,0 = top-left of mask, maskWidth,maskHeight = bottom-right). Radius and fade are in the same units.";
     };
+    readonly addtag: {
+        readonly description: "Add tag to object";
+        readonly longDescription: "Adds a tag to an object at runtime. Tags can be used to group objects and reference them with #tagName syntax in show/hide/set and other commands.";
+        readonly example: "addTag self #enemy\naddTag Player #active\naddTag #sprites #visible";
+        readonly parameters: [{
+            readonly name: "target";
+            readonly type: "string";
+            readonly description: "Object name, self, other, #tag, or all type";
+        }, {
+            readonly name: "tag";
+            readonly type: "string";
+            readonly description: "Tag to add (#tagName)";
+        }];
+        readonly notes: "Adding an already-existing tag is a no-op.";
+    };
+    readonly removetag: {
+        readonly description: "Remove tag from object";
+        readonly longDescription: "Removes a tag from an object at runtime.";
+        readonly example: "removeTag self #enemy\nremoveTag #enemies #active";
+        readonly parameters: [{
+            readonly name: "target";
+            readonly type: "string";
+            readonly description: "Object name, self, other, #tag, or all type";
+        }, {
+            readonly name: "tag";
+            readonly type: "string";
+            readonly description: "Tag to remove (#tagName)";
+        }];
+        readonly notes: "Removing a tag that doesn't exist is a no-op.";
+    };
     readonly rehide: {
         readonly description: "Rehide (restore fog) on a mask";
         readonly longDescription: "Resets a mask or specific revealer layer back to fully opaque (hidden). Without a revealer name, resets the entire mask. With a revealer name, resets only that revealer's trail.";
@@ -1584,6 +1625,22 @@ export declare const TRANSITIONS: {
     readonly zoom: {
         readonly description: "Zoom in/out";
         readonly validFor: ["goto"];
+    };
+    readonly typewriter: {
+        readonly description: "Characters appear one at a time (text only)";
+        readonly validFor: ["show", "hide"];
+    };
+    readonly word: {
+        readonly description: "Words appear one at a time (text only)";
+        readonly validFor: ["show", "hide"];
+    };
+    readonly scramble: {
+        readonly description: "Random characters settle into final text (text only)";
+        readonly validFor: ["show", "hide"];
+    };
+    readonly redact: {
+        readonly description: "Characters revealed from redacted blocks (text only)";
+        readonly validFor: ["show", "hide"];
     };
 };
 export type TransitionType = keyof typeof TRANSITIONS;
@@ -1927,8 +1984,8 @@ export declare const FUNCTIONS: {
     };
     readonly minimax: {
         readonly description: "AI best move (minimax)";
-        readonly longDescription: "Uses minimax algorithm with alpha-beta pruning to find the optimal move for grid-based games like Connect4, Tic-tac-toe, etc. Returns the best column index for the AI player.";
-        readonly example: "// Connect4 AI move\nset bestCol minimax(\"Board\", \"owner\", \"YELLOW\", \"RED\", 4)\nset col bestCol\nStart.dropPiece\n\n// Tic-tac-toe (3x3, win=3)\nset bestCol minimax(\"Grid\", \"mark\", \"O\", \"X\", 6, 0, 3)";
+        readonly longDescription: "Uses minimax algorithm with alpha-beta pruning to find the optimal move for any two-player N-in-a-row grid game (tic-tac-toe, Connect4, Gomoku, etc.). Returns {x, y} of the best cell to play, or 0 if no valid move.";
+        readonly example: "// Tic-tac-toe (3x3, win=3)\nset move minimax(\"Board\", \"mark\", \"O\", \"X\", 6, 0, 3)\nif move != 0:\n  set Board.cell[move.x][move.y].mark \"O\"";
         readonly parameters: [{
             readonly name: "grid";
             readonly type: "string";
@@ -1940,11 +1997,11 @@ export declare const FUNCTIONS: {
         }, {
             readonly name: "aiPlayer";
             readonly type: "any";
-            readonly description: "AI player value (e.g., \"YELLOW\")";
+            readonly description: "AI player value (e.g., \"O\")";
         }, {
             readonly name: "humanPlayer";
             readonly type: "any";
-            readonly description: "Human player value (e.g., \"RED\")";
+            readonly description: "Human player value (e.g., \"X\")";
         }, {
             readonly name: "depth";
             readonly type: "number";
@@ -1957,11 +2014,16 @@ export declare const FUNCTIONS: {
         }, {
             readonly name: "winLength";
             readonly type: "number";
-            readonly description: "Pieces to win (default: 4)";
+            readonly description: "Pieces in a row to win (default: 4)";
+            readonly optional: true;
+        }, {
+            readonly name: "drop";
+            readonly type: "string";
+            readonly description: "Pass \"drop\" for column-drop games like Connect-4 (pieces fall to lowest empty row)";
             readonly optional: true;
         }];
-        readonly returns: "number";
-        readonly notes: "Higher depth = stronger but slower. Depth 4-5 is good for Connect4. Returns -1 if no valid move.";
+        readonly returns: "object";
+        readonly notes: "Returns {x, y} of the best move or 0 if no move available. Default: any empty cell (tic-tac-toe). With \"drop\": column-drop (Connect-4). Higher depth = stronger but slower.";
     };
     readonly hash: {
         readonly description: "Hash values to integer";
@@ -1990,6 +2052,27 @@ export declare const FUNCTIONS: {
         }];
         readonly returns: "number";
     };
+    readonly randomFree: {
+        readonly description: "Random unblocked position";
+        readonly longDescription: "Finds a random position that is not blocked by any static obstacle, within the given radius. Uses the pathfinding collision bitmap. Returns {x, y} or 0 if no free position found. Two forms: object reference (uses current position as center) or explicit coordinates (for patrol around a fixed point).";
+        readonly example: "set target randomFree(self, 0.3)\nmoveTo self target.x target.y\n\n// Patrol around fixed point\nset homeX self.x\nset homeY self.y\nset target randomFree(homeX, homeY, 0.3)";
+        readonly parameters: [{
+            readonly name: "center";
+            readonly type: "object";
+            readonly description: "Center object or X coordinate";
+        }, {
+            readonly name: "radius";
+            readonly type: "number";
+            readonly description: "Search radius (or Y coordinate if first arg is number)";
+        }, {
+            readonly name: "radius2";
+            readonly type: "number";
+            readonly description: "Search radius (when using x, y coordinates)";
+            readonly optional: true;
+        }];
+        readonly returns: "object";
+        readonly notes: "Returns {x, y} or 0 if no free cell found. Level-aware: uses the pathfinding bitmap for the scene.";
+    };
     readonly nearby: {
         readonly description: "Objects within radius";
         readonly longDescription: "Returns all objects within the given radius of the reference object, sorted by distance. Optional tag filter. Each result has name, x, y, and distance properties.";
@@ -2014,7 +2097,7 @@ export declare const FUNCTIONS: {
     readonly nearest: {
         readonly description: "Closest matching object";
         readonly longDescription: "Returns the Nth closest object to a reference point, optionally filtered by tag, name, or sibling. Can measure from an object or from x/y coordinates. Returns {name, x, y, distance} or 0 if no match.";
-        readonly example: "set target nearest(self, #coin)\nif target != 0:\n  set dx target.x - self.x\n\n// Check spawn position is clear\nset sx random\nset sy random\nif nearest(sx, sy, #enemy).distance > 0.1:\n  spawn \"Enemy\" {x: sx, y: sy}\n\n// 2nd nearest enemy\nset second nearest(self, #enemy, 2)";
+        readonly example: "// Store result in variable, then read fields\nset target nearest(self, #coin)\nif target != 0:\n  set dx target.x - self.x\n  set dy target.y - self.y\n\n// To store per-object, copy fields to properties\nset tmp nearest(parent, #enemy)\nset self.enemyX tmp.x\nset self.enemyY tmp.y\nset self.enemyDist tmp.distance\n\n// 2nd nearest enemy\nset second nearest(self, #enemy, 2)";
         readonly parameters: [{
             readonly name: "ref";
             readonly type: "object|number";
@@ -2035,7 +2118,7 @@ export declare const FUNCTIONS: {
             readonly optional: true;
         }];
         readonly returns: "object|0";
-        readonly notes: "Returns {name, x, y, distance} or 0. Use \"sibling\" selector for same-component children. Rank 2 = second nearest, etc.";
+        readonly notes: "Returns {name, x, y, distance} or 0. Store in a variable to read fields: `set t nearest(...)` then `t.x`, `t.y`, `t.name`, `t.distance`. Variables are global — to store per-object, copy to self properties: `set self.tx t.x`. Use \"sibling\" selector for same-component children. Rank 2 = second nearest, etc.";
     };
     readonly intersects: {
         readonly description: "Collision shape overlap";
@@ -2183,8 +2266,8 @@ export declare const VARIABLES: {
     };
     readonly other: {
         readonly description: "Other object in collision/overlap";
-        readonly longDescription: "References the other object involved in a collision or overlap event. Available in onCollide, onOverlap, and onOverlapEnd handlers. Access properties with other.property (e.g., other.name, other.x, other.visible). Can also read custom object variables with other.varName. Use with hasTag to check tags: `if other hasTag #enemy`.";
-        readonly example: "if other hasTag #missile:\n  set health health - 1";
+        readonly longDescription: "References the other object involved in a collision or overlap event. Available in onCollide, onOverlap, and onOverlapEnd handlers. Access properties with other.property (e.g., other.name, other.x, other.visible). Can also read custom object variables with other.varName. Use `is` to check tags: `if other is #enemy`.";
+        readonly example: "if other is #missile:\n  set health health - 1";
         readonly type: "object";
     };
     readonly newGame: {
@@ -2211,7 +2294,7 @@ export declare const CONCEPTS: {
     readonly objectVariables: {
         readonly description: "Custom per-instance variables on objects";
         readonly longDescription: "Any property name that isn't a built-in scriptable property becomes a custom object variable stored per instance. Use `set self.health 100` to create/update and `self.health` to read. These survive across events within a session. Other objects can read them too: `set score Enemy.health`. In collision/overlap handlers, use `other.varName` to read the other object's custom variables.";
-        readonly example: "set self.health 100\nset self.ammo 30\nif self.health <= 0:\n  destroy self\n\n// Reading from another object\nset display.content Enemy.health\n\n// In onCollide handler\nonCollide:\n  if other hasTag #bullet:\n    set self.health self.health - other.damage";
+        readonly example: "set self.health 100\nset self.ammo 30\nif self.health <= 0:\n  destroy self\n\n// Reading from another object\nset display.content Enemy.health\n\n// In onCollide handler\nonCollide:\n  if other is #bullet:\n    set self.health self.health - other.damage";
         readonly notes: "Object variables are session-scoped (cleared on reset). They are distinct from session/game/local variables which are global.";
     };
     readonly componentChildAccess: {
@@ -2467,9 +2550,9 @@ export declare const SCRIPTABLE_PROPERTIES: {
         readonly example: "set Player.trail true";
     };
     readonly trailLength: {
-        readonly description: "Trail length in frames (default 20)";
+        readonly description: "Trail distance in world units (default 0.3)";
         readonly type: "number";
-        readonly example: "set Player.trailLength 30";
+        readonly example: "set Player.trailLength 0.5";
     };
     readonly trailOpacity: {
         readonly description: "Trail starting opacity (default 0.3)";
@@ -2482,14 +2565,19 @@ export declare const SCRIPTABLE_PROPERTIES: {
         readonly example: "set Player.trailColor \"#00ffff\"";
     };
     readonly trailScale: {
-        readonly description: "Trail point scale (default 0.8)";
+        readonly description: "Trail taper ratio — tail/head width (default 0.3, 0=pointed, 1=uniform)";
         readonly type: "number";
-        readonly example: "set Player.trailScale 0.6";
+        readonly example: "set Player.trailScale 0.5";
     };
-    readonly trailSpacing: {
-        readonly description: "Min distance between trail points (default 0)";
+    readonly trailWidth: {
+        readonly description: "Trail width multiplier of min(width, height) (default: 1)";
         readonly type: "number";
-        readonly example: "set Player.trailSpacing 0.02";
+        readonly example: "set Player.trailWidth 0.5";
+    };
+    readonly trailFade: {
+        readonly description: "Trail edge blur in pixels (0=off)";
+        readonly type: "number";
+        readonly example: "set Player.trailFade 5";
     };
     readonly zIndex: {
         readonly description: "Layer order";
@@ -2549,14 +2637,12 @@ export declare const SCRIPTABLE_PROPERTIES: {
     readonly velocityX: {
         readonly description: "Horizontal velocity";
         readonly type: "number";
-        readonly example: "if Player.velocityX > 0:";
-        readonly readonly: true;
+        readonly example: "set Ball.velocityX 0.3";
     };
     readonly velocityY: {
         readonly description: "Vertical velocity";
         readonly type: "number";
-        readonly example: "if Player.velocityY > 0:";
-        readonly readonly: true;
+        readonly example: "set Ball.velocityY -0.5";
     };
     readonly angularVelocity: {
         readonly description: "Rotation speed (deg/sec)";
@@ -2577,6 +2663,12 @@ export declare const SCRIPTABLE_PROPERTIES: {
         readonly type: "number";
         readonly example: "if Player.moveSpeed > 0.5:";
         readonly readonly: true;
+    };
+    readonly followDistance: {
+        readonly description: "Follow/avoid distance (read/write at runtime, negative = overlap)";
+        readonly type: "number";
+        readonly example: "set self.followDistance 0.1";
+        readonly notes: "Only available when follow/avoid is enabled";
     };
     readonly spriteFrame: {
         readonly description: "Current sprite sheet frame (0-based)";
@@ -2644,6 +2736,11 @@ export declare const SCRIPTABLE_PROPERTIES: {
         readonly type: "string";
         readonly example: "set Player.revealerShape rect";
     };
+    readonly revealTags: {
+        readonly description: "Only reveal masks with matching tags (empty = all masks)";
+        readonly type: "array";
+        readonly example: "set Player.revealTags [\"darkness\"]";
+    };
     readonly revealerRehide: {
         readonly description: "Enable auto-rehide (fog returns when revealer moves away)";
         readonly type: "boolean";
@@ -2668,6 +2765,31 @@ export declare const SCRIPTABLE_PROPERTIES: {
         readonly description: "Pause rehide when stopped briefly (seconds, 0=disabled)";
         readonly type: "number";
         readonly example: "set Player.revealerRehideStopThreshold 0.5";
+    };
+    readonly 'keys.up': {
+        readonly description: "Remap up/forward key (\"none\" to disable)";
+        readonly type: "string";
+        readonly example: "set self.keys.up \"w\"";
+    };
+    readonly 'keys.down': {
+        readonly description: "Remap down/backward key (\"none\" to disable)";
+        readonly type: "string";
+        readonly example: "set self.keys.down \"none\"";
+    };
+    readonly 'keys.left': {
+        readonly description: "Remap left key (\"none\" to disable)";
+        readonly type: "string";
+        readonly example: "set self.keys.left \"a\"";
+    };
+    readonly 'keys.right': {
+        readonly description: "Remap right key (\"none\" to disable)";
+        readonly type: "string";
+        readonly example: "set self.keys.right \"d\"";
+    };
+    readonly 'keys.jump': {
+        readonly description: "Remap jump key (\"none\" to disable)";
+        readonly type: "string";
+        readonly example: "set self.keys.jump \"w\"";
     };
     readonly pegType: {
         readonly description: "Constraint type: pin or weld";
@@ -2846,6 +2968,21 @@ export declare const CELL_SCRIPTABLE_PROPERTIES: {
         readonly type: "color";
         readonly example: "set Cell.backgroundColor \"#ff0000\"";
     };
+    readonly 'gradient.color0': {
+        readonly description: "First gradient stop color";
+        readonly type: "color";
+        readonly example: "set Cell.gradient.color0 \"#87CEEB\"";
+    };
+    readonly 'gradient.color1': {
+        readonly description: "Second gradient stop color";
+        readonly type: "color";
+        readonly example: "set Cell.gradient.color1 \"#0a0a2e\"";
+    };
+    readonly 'gradient.angle': {
+        readonly description: "Gradient angle in degrees";
+        readonly type: "number";
+        readonly example: "set Cell.gradient.angle 180";
+    };
     readonly backgroundPattern: {
         readonly description: "Cell background pattern";
         readonly type: "string";
@@ -2878,11 +3015,11 @@ export declare const CELL_SCRIPTABLE_PROPERTIES: {
         readonly type: "number";
         readonly example: "set Cell.windAngle 90";
     };
-    readonly airResistance: {
+    readonly drag: {
         readonly description: "Drag coefficient (0 = vacuum, 0.1 = air, 1 = water-like)";
         readonly type: "number";
-        readonly example: "set Cell.airResistance 0.1";
-        readonly notes: "Creates natural terminal velocity: v_terminal ≈ gravity / airResistance";
+        readonly example: "set Cell.drag 0.1";
+        readonly notes: "Creates natural terminal velocity: v_terminal ≈ gravity / drag";
     };
     readonly timeScale: {
         readonly description: "Time scale for all objects (0=paused, 0.5=half speed, 1=normal, 2=double). Per-object timeScale overrides this";
@@ -2976,8 +3113,8 @@ export declare function generateSyntaxReference(): string;
 export declare function generateUserManual(): string;
 export declare const BUILTIN_ACTIONS: {
     name: string;
-    description: "Navigate to cell" | "Cell transition animation" | "Make visible" | "Make hidden" | "Pause execution" | "Set variable or property" | "Reset game state" | "Reset click counter" | "Exit play mode" | "Restart from start cell" | "Save game to named slot" | "Load game from named slot" | "Delete a save slot" | "Exit action/handler early" | "Exit loop early" | "Clear grid cell data" | "Create pageable sequence" | "Next pageable item" | "Previous pageable item" | "Wrap pageable to first item" | "Broadcast message" | "Send message to target" | "Synthetic key press" | "Synthetic key release" | "Send data to URL" | "Get data from URL" | "Create runtime object from template" | "Remove object from scene" | "Copy to clipboard" | "Shake animation" | "Vibrate animation" | "Pulse animation" | "Squeeze animation" | "Bounce animation" | "Spin animation" | "Glow animation" | "Screen shake effect" | "Stop animation or audio" | "Play audio" | "Pause audio" | "Trigger jump impulse" | "Add velocity to object" | "Smooth position tween" | "Move to position or object (physical)" | "Debug log" | "Iterate over collection" | "Repeat block forever or N times" | "Find first matching tagged object" | "Define custom action" | "Enable movement" | "Disable movement" | "Enable jumping" | "Disable jumping" | "Enable drag" | "Disable drag" | "Enable keyboard input" | "Enable click-to-move input" | "Enable gamepad input" | "Enable script-only input" | "Disable keyboard input" | "Disable click-to-move input" | "Disable gamepad input" | "Disable script-only input" | "Enable camera follow" | "Disable camera follow" | "Follow a target object" | "Avoid a target object" | "Stop following/avoiding" | "Create a physics zone" | "Deactivate a physics zone" | "Enable collision blocking on an object" | "Disable collision blocking" | "Enable overlap detection on an object" | "Disable overlap detection" | "Enable phasing through blockers" | "Disable phasing (resume normal collisions)" | "Animate through a state group" | "Stop state group animation" | "Reveal area on mask" | "Rehide (restore fog) on a mask";
-    example: "goto \"NextRoom\" clean with fade 500" | "onEnter:\n  transition fade 500\n\nonExit:\n  transition slide-up 300" | "show MyButton with fade 300" | "hide ErrorMessage with fade 200" | "wait 2000\nwait 2s\nwait movement\nwait movement self" | "set score 100\nset game.highScore 999\nset Button1.opacity 0.5\nset self.opacity 0 over 500\nset self.fillColor \"#ff0000\" over 1000 ease-in-out\nset self.x 0.8 over 300 ease-out\nset self.state RED\nset self.state RED over 500\nset self.state RED position over 300 ease-out cw\nset self.state BLUE none\nset self.state BLUE position rotate\nset self.state BLUE offset\nset self.state next" | "reset game" | "onClick:\n  show Step1\nonClick:\n  show Step2\nonClick:\n  hide Step2\n  reset script" | "onClick:\n  endGame" | "onClick:\n  restart" | "onClick:\n  save \"checkpoint\"" | "onClick:\n  if hasSave(\"checkpoint\"):\n    load \"checkpoint\"" | "onClick:\n  delete save \"checkpoint\"" | "action checkWin:\n  if not gameStarted:\n    return\n  // ... check win logic" | "foreach item in items:\n  if item.found:\n    set result item\n    break" | "// Clear entire grid\nclear Board\n\n// Clear specific cell\nclear Board.cell[2][3]" | "enable Slideshow pageable [Intro, Step1, Step2, Step3]\n// Or use children order:\nenable Slideshow pageable" | "next Slideshow with fade wrap" | "prev Slideshow with fade wrap" | "next Slideshow else:\n  wrap Slideshow\n  show LoopIndicator" | "shout \"KEY_PICKED_UP\"\nshout \"DAMAGE\" {amount: 50, source: \"enemy\"}\nshout \"SCORE_CHANGED\" {newScore: score}" | "shout to Player \"HEAL\" {amount: 25}\nshout to #enemies \"FREEZE\"\nshout to HealthBar \"UPDATE\" {value: health}" | "press \"q\"\npress \"Space\"\npress \"e\" on EnemyTank" | "release \"q\"\nrelease \"Space\"\nrelease \"e\" on EnemyTank" | "post \"https://api.example.com/scores\" {name: playerName, score: finalScore}" | "fetch \"https://api.example.com/scores\" into highscores" | "spawn \"PieceTemplate\" {col: 3, row: 5, color: \"red\"}\nspawn \"Bullet\" at MuzzlePoint\nspawn \"Bullet\" at MuzzlePoint {vx: 1, vy: 0}" | "destroy piece\ndestroy self\ndestroy Enemy with fade 300\ndestroy self with scale 200" | "onClick:\n  copy seed\n\nonClick:\n  copy Result.content" | "shake Button 200\nshake self 500 loop\nshake #enemies 300" | "vibrate Phone 500\nvibrate self loop\nvibrate #alerts 200 loop" | "pulse Heart 1000\npulse self 2000 loop\npulse #collectibles 500" | "squeeze Slime 400\nsqueeze self 800 loop\nsqueeze #bouncy 300" | "bounce Ball 600\nbounce self 1000 loop\nbounce #items 400" | "spin Gear 1000\nspin self 2000 loop\nspin #wheels 500 loop cw\nspin MyComponent 1000 loop children" | "glow Button 1000\nglow self 2000 loop\nglow self 1500 loop \"#ff0000\"" | "screenshake 300\nscreenshake 500 loop\nscreenshake 200 5\nscreenshake 2000 1-5\nstop screenshake" | "stop Gear\nstop #wheels\nstop Music" | "play Music\nplay SoundEffect loop" | "pause Music" | "jump self\njump Player\njump Player height 0.8" | "impulse self 0.3 -0.5\nimpulse Ball random(-0.2, 0.2) -0.5\nimpulse #enemies 0.1 0" | "transport self to 0.5 0.5 over 1000\ntransport Player to 0.2 0.8 over 500 ease-in-out\ntransport #enemies to Player.x Player.y over 300" | "moveTo self 0.5 0.5\nmoveTo Player 0.2 0.8\nmoveTo #enemies Player.x Player.y\nmoveTo self Checkpoint\nmoveTo #enemies Flag" | "log \"Player position: \" Player.x \", \" Player.y\nlog \"Score: \" score" | "foreach item in emptyCells(\"Board\"):\n  log item.x \", \" item.y\n\nforeach enemy in #enemies:\n  set enemy.opacity 0.5" | "repeat:\n  spawn \"Particle\" {x: random, y: 0}\n  wait 100ms\n\nrepeat 3:\n  show Hint\n  wait 1s\n  hide Hint" | "first #tiles where visible == true:\n  set found item\n  hide item\n\nfirst #enemies where health <= 0:\n  destroy item" | "// Define on any object:\naction dropPiece:\n  set Board.cell[col][row].owner currentPlayer\n  spawn \"Piece\" {col: col, row: row}\n\n// Call from any script in the cell:\ndo dropPiece\ndo checkWin" | "enable Player movable speed 0.3\nenable Paddle movable speed 0.5 axis x\nenable Ball movable speed 0.3 path Track\nenable Ship movable speed 0.3 facing\nenable Tank movable speed 0.3 axis forward\nenable siblings movable speed 0.5\ndisable Player movable" | "disable Player movable" | "enable Player jumpable height 0.8\nenable Player jumpable height 0.6 multijump 2\ndisable Player jumpable" | "disable Player jumpable" | "enable Piece draggable\nenable Piece draggable discrete occupy collision" | "disable Piece draggable" | "enable Player keyboard" | "enable Player click" | "enable Player gamepad" | "enable Tank script" | "disable Player keyboard" | "disable Player click" | "disable Player gamepad" | "disable Tank script" | "enable Player subject" | "disable Player subject" | "enable Dog follow \"Player\"\nenable Dog follow \"Player\" distance 0.15\nenable Guard follow \"Player\" distance 0.2\nenable Tank follow \"Player\" arrival 0.15\nenable Tank follow \"Player\" delay 2000\nenable #enemies follow \"Player\"\ndisable Dog follow" | "enable Enemy avoid \"Player\" distance 0.3\nenable Enemy avoid \"Player\" distance 0.5 arrival 0.1\ndisable Enemy follow" | "disable Dog follow" | "enable WaterRegion zone gravity 0.3 airResistance 0.8\nenable WindTunnel zone wind 5 windAngle 0\nenable IcePatch zone friction 0\nenable Conveyor zone flowX 0.3\nenable SpacePocket zone gravity 0 airResistance 0\nenable WaterRegion zone gravity 0.3 affects #swimmer\nenable WindTunnel zone wind 5 affects #light #paper" | "disable WaterRegion zone" | "enable Wall blocking\nenable Wall blocking affects #tank #player\nenable #walls blocking affects #tank" | "disable Wall blocking" | "enable Goal sensor\nenable Goal sensor affects #ball\nenable #detectors sensor affects #player" | "disable Goal sensor" | "enable Bullet phase\nenable Bullet phase affects #boundary\nenable self phase affects #wall #fence" | "disable Bullet phase" | "animate self \"walk\"\nanimate self \"walk\" fps 12\nanimate self \"walk\" once\nanimate self \"walk\" pingpong\nanimate self \"hover\" duration 500\nanimate self \"hover\" duration 300 ease-in-out\nanimate self \"spin\" loop cw\nanimate self \"walk\" loop resume\nanimate self \"run\" loop exclusive\nanimate self \"walk\" reverse\nanimate Button \"hover\" duration 200 loop" | "stop animate self\nstop animate Button\nstop animate #enemies" | "reveal Mask1 0.2 0.2\nreveal Mask1 0.5 0.5 0.1\nreveal Mask1 self.x self.y 0.05 0.02" | "rehide Mask1\nrehide Mask1 Player";
+    description: "Navigate to cell" | "Cell transition animation" | "Make visible" | "Make hidden" | "Pause execution" | "Set variable or property" | "Reset game state" | "Reset click counter" | "Exit play mode" | "Restart from start cell or current cell" | "Save game to named slot" | "Load game from named slot" | "Delete a save slot" | "Exit action/handler early" | "Exit loop early" | "Clear grid cell data" | "Broadcast message" | "Send message to target" | "Synthetic key press" | "Synthetic key release" | "Open URL in browser" | "Send data to URL" | "Get data from URL" | "Create runtime object from template" | "Remove object from scene" | "Copy to clipboard" | "Shake animation" | "Vibrate animation" | "Pulse animation" | "Squeeze animation" | "Bounce animation" | "Spin animation" | "Glow animation" | "Screen shake effect" | "Stop animation or audio" | "Play audio" | "Pause audio" | "Trigger jump impulse" | "Add velocity to object" | "Smooth position tween" | "Move to position or object (physical)" | "Debug log" | "Iterate over collection" | "Repeat block forever or N times" | "Find first matching tagged object" | "Define custom action" | "Enable movement" | "Disable movement" | "Enable jumping" | "Disable jumping" | "Enable drag" | "Disable drag" | "Enable keyboard input" | "Enable click-to-move input" | "Enable gamepad input" | "Enable script-only input" | "Disable keyboard input" | "Disable click-to-move input" | "Disable gamepad input" | "Disable script-only input" | "Enable camera follow" | "Disable camera follow" | "Follow a target object" | "Avoid a target object" | "Stop following/avoiding" | "Create a physics zone" | "Deactivate a physics zone" | "Enable collision blocking on an object" | "Disable collision blocking" | "Enable overlap detection on an object" | "Disable overlap detection" | "Enable phasing through blockers" | "Disable phasing (resume normal collisions)" | "Animate through a state group" | "Stop state group animation" | "Reveal area on mask" | "Add tag to object" | "Remove tag from object" | "Rehide (restore fog) on a mask";
+    example: "goto \"NextRoom\" clean with fade 500" | "onEnter:\n  transition fade 500\n\nonExit:\n  transition slide-up 300" | "show MyButton with fade 300" | "hide ErrorMessage with fade 200" | "wait 2000\nwait 2s\nwait movement\nwait movement self" | "set score 100\nset game.highScore 999\nset Button1.opacity 0.5\nset self.opacity 0 over 500\nset self.fillColor \"#ff0000\" over 1000 ease-in-out\nset self.x 0.8 over 300 ease-out\nset self.state RED\nset self.state RED over 500\nset self.state RED position over 300 ease-out cw\nset self.state BLUE none\nset self.state BLUE position rotate\nset self.state BLUE offset\nset self.state next" | "reset game" | "onClick:\n  show Step1\nonClick:\n  show Step2\nonClick:\n  hide Step2\n  reset script" | "onClick:\n  endGame" | "onClick:\n  restart          // back to start cell\n  restart cell     // restart current cell" | "onClick:\n  save \"checkpoint\"" | "onClick:\n  if hasSave(\"checkpoint\"):\n    load \"checkpoint\"" | "onClick:\n  delete save \"checkpoint\"" | "action checkWin:\n  if not gameStarted:\n    return\n  // ... check win logic" | "foreach item in items:\n  if item.found:\n    set result item\n    break" | "// Clear entire grid\nclear Board\n\n// Clear specific cell\nclear Board.cell[2][3]" | "shout \"KEY_PICKED_UP\"\nshout \"DAMAGE\" {amount: 50, source: \"enemy\"}\nshout \"SCORE_CHANGED\" {newScore: score}" | "shout to Player \"HEAL\" {amount: 25}\nshout to #enemies \"FREEZE\"\nshout to HealthBar \"UPDATE\" {value: health}" | "press \"q\"\npress \"Space\"\npress \"e\" on EnemyTank" | "release \"q\"\nrelease \"Space\"\nrelease \"e\" on EnemyTank" | "openUrl \"https://example.com\"\nopenUrl \"https://example.com/user/\" + playerId newTab\nopenUrl myUrl" | "post \"https://api.example.com/scores\" {name: playerName, score: finalScore}" | "fetch \"https://api.example.com/scores\" into highscores" | "spawn \"PieceTemplate\" {col: 3, row: 5, color: \"red\"}\nspawn \"Bullet\" at MuzzlePoint\nspawn \"Bullet\" at MuzzlePoint {vx: 1, vy: 0}" | "destroy piece\ndestroy self\ndestroy Enemy with fade 300\ndestroy self with scale 200" | "onClick:\n  copy seed\n\nonClick:\n  copy Result.content" | "shake Button 200\nshake self 500 loop\nshake #enemies 300" | "vibrate Phone 500\nvibrate self loop\nvibrate #alerts 200 loop" | "pulse Heart 1000\npulse self 2000 loop\npulse #collectibles 500" | "squeeze Slime 400\nsqueeze self 800 loop\nsqueeze #bouncy 300" | "bounce Ball 600\nbounce self 1000 loop\nbounce #items 400" | "spin Gear 1000\nspin self 2000 loop\nspin #wheels 500 loop cw\nspin MyComponent 1000 loop children" | "glow Button 1000\nglow self 2000 loop\nglow self 1500 loop \"#ff0000\"" | "screenshake 300\nscreenshake 500 loop\nscreenshake 200 5\nscreenshake 2000 1-5\nstop screenshake" | "stop Gear\nstop #wheels\nstop Music\nstop Music fadeOut 2000" | "play Music\nplay SoundEffect loop\nplay Music fadeIn 2000" | "pause Music\npause Music fadeOut 1000" | "jump self\njump Player\njump Player height 0.8" | "impulse self 0.3 -0.5\nimpulse Ball random(-0.2, 0.2) -0.5\nimpulse #enemies 0.1 0" | "transport self to 0.5 0.5 over 1000\ntransport Player to 0.2 0.8 over 500 ease-in-out\ntransport #enemies to Player.x Player.y over 300" | "moveTo self 0.5 0.5\nmoveTo Player 0.2 0.8\nmoveTo #enemies Player.x Player.y\nmoveTo self Checkpoint\nmoveTo #enemies Flag" | "log \"Player position: \" Player.x \", \" Player.y\nlog \"Score: \" score" | "foreach item in emptyCells(\"Board\"):\n  log item.x \", \" item.y\n\nforeach enemy in #enemies:\n  set enemy.opacity 0.5" | "repeat:\n  spawn \"Particle\" {x: random, y: 0}\n  wait 100ms\n\nrepeat 3:\n  show Hint\n  wait 1s\n  hide Hint" | "first #tiles where visible == true:\n  set found item\n  hide item\n\nfirst #enemies where health <= 0:\n  destroy item" | "// Define on any object:\naction dropPiece:\n  set Board.cell[col][row].owner currentPlayer\n  spawn \"Piece\" {col: col, row: row}\n\n// Call from any script in the cell:\ndo dropPiece\ndo checkWin" | "enable Player movable speed 0.3\nenable Paddle movable speed 0.5 axis x\nenable Ball movable speed 0.3 path Track\nenable Ship movable speed 0.3 facing\nenable Tank movable speed 0.3 axis forward\nenable siblings movable speed 0.5\ndisable Player movable" | "disable Player movable" | "enable Player jumpable height 0.8\nenable Player jumpable height 0.6 multijump 2\ndisable Player jumpable" | "disable Player jumpable" | "enable Piece draggable\nenable Piece draggable discrete occupy collision" | "disable Piece draggable" | "enable Player keyboard" | "enable Player click" | "enable Player gamepad" | "enable Tank script" | "disable Player keyboard" | "disable Player click" | "disable Player gamepad" | "disable Tank script" | "enable Player subject" | "disable Player subject" | "enable Dog follow \"Player\"\nenable Dog follow \"Player\" distance 0.15\nenable Guard follow \"Player\" distance 0.2\nenable Tank follow \"Player\" arrival 0.15\nenable Tank follow \"Player\" delay 2000\nenable #enemies follow \"Player\"\ndisable Dog follow" | "enable Enemy avoid \"Player\" distance 0.3\nenable Enemy avoid \"Player\" distance 0.5 arrival 0.1\ndisable Enemy follow" | "disable Dog follow" | "enable WaterRegion zone gravity 0.3 drag 0.8\nenable WindTunnel zone wind 5 windAngle 0\nenable IcePatch zone drag 0\nenable Conveyor zone flowX 0.3\nenable SpacePocket zone gravity 0 drag 0\nenable WaterRegion zone gravity 0.3 affects #swimmer\nenable WindTunnel zone wind 5 affects #light #paper" | "disable WaterRegion zone" | "enable Wall blocking\nenable Wall blocking affects #tank #player\nenable #walls blocking affects #tank" | "disable Wall blocking" | "enable Goal sensor\nenable Goal sensor affects #ball\nenable #detectors sensor affects #player" | "disable Goal sensor" | "enable Bullet phase\nenable Bullet phase affects #boundary\nenable self phase affects #wall #fence" | "disable Bullet phase" | "animate self \"walk\"\nanimate self \"walk\" fps 12\nanimate self \"walk\" once\nanimate self \"walk\" pingpong\nanimate self \"hover\" duration 500\nanimate self \"hover\" duration 300 ease-in-out\nanimate self \"spin\" loop cw\nanimate self \"walk\" loop resume\nanimate self \"run\" loop exclusive\nanimate self \"walk\" reverse\nanimate Button \"hover\" duration 200 loop" | "stop animate self\nstop animate Button\nstop animate #enemies" | "reveal Mask1 0.2 0.2\nreveal Mask1 0.5 0.5 0.1\nreveal Mask1 self.x self.y 0.05 0.02" | "addTag self #enemy\naddTag Player #active\naddTag #sprites #visible" | "removeTag self #enemy\nremoveTag #enemies #active" | "rehide Mask1\nrehide Mask1 Player";
     args: [] | [{
         readonly name: "cell";
         readonly type: "string";
@@ -3075,6 +3212,11 @@ export declare const BUILTIN_ACTIONS: {
         readonly type: "string";
         readonly description: "What to reset: \"session\", \"game\", \"all\", \"objects\", \"fresh\", or cell name";
     }] | [{
+        readonly name: "cell";
+        readonly type: "keyword";
+        readonly optional: true;
+        readonly description: "If specified, restarts current cell instead of going to start";
+    }] | [{
         readonly name: "slotName";
         readonly type: "string";
         readonly description: "Name of the save slot";
@@ -3095,26 +3237,6 @@ export declare const BUILTIN_ACTIONS: {
         readonly type: "cell coords";
         readonly description: "Optional: specific cell to clear";
         readonly optional: true;
-    }] | [{
-        readonly name: "target";
-        readonly type: "string";
-        readonly description: "Component name, self, siblings, children, #tag";
-    }, {
-        readonly name: "items";
-        readonly type: "string[]";
-        readonly description: "List of object names to cycle through (optional - omit brackets to use component children)";
-    }] | [{
-        readonly name: "target";
-        readonly type: "string";
-        readonly description: "Pageable name";
-    }] | [{
-        readonly name: "target";
-        readonly type: "string";
-        readonly description: "Pageable name";
-    }] | [{
-        readonly name: "target";
-        readonly type: "string";
-        readonly description: "Pageable name to wrap";
     }] | [{
         readonly name: "message";
         readonly type: "string";
@@ -3154,6 +3276,15 @@ export declare const BUILTIN_ACTIONS: {
         readonly name: "target";
         readonly type: "string";
         readonly description: "Object to target (default: self)";
+        readonly optional: true;
+    }] | [{
+        readonly name: "url";
+        readonly type: "expression";
+        readonly description: "URL to open (string, variable, or expression)";
+    }, {
+        readonly name: "newTab";
+        readonly type: "keyword";
+        readonly description: "Open in new tab instead of current window";
         readonly optional: true;
     }] | [{
         readonly name: "url";
@@ -3329,6 +3460,11 @@ export declare const BUILTIN_ACTIONS: {
         readonly name: "target";
         readonly type: "string";
         readonly description: "Object name, #tag, or all type";
+    }, {
+        readonly name: "fadeOut";
+        readonly type: "number";
+        readonly description: "Fade out duration in milliseconds (audio only)";
+        readonly optional: true;
     }] | [{
         readonly name: "target";
         readonly type: "string";
@@ -3338,10 +3474,20 @@ export declare const BUILTIN_ACTIONS: {
         readonly type: "keyword";
         readonly description: "Loop playback continuously";
         readonly optional: true;
+    }, {
+        readonly name: "fadeIn";
+        readonly type: "number";
+        readonly description: "Fade in duration in milliseconds";
+        readonly optional: true;
     }] | [{
         readonly name: "target";
         readonly type: "string";
         readonly description: "Audio object name";
+    }, {
+        readonly name: "fadeOut";
+        readonly type: "number";
+        readonly description: "Fade out duration in milliseconds";
+        readonly optional: true;
     }] | [{
         readonly name: "target";
         readonly type: "string";
@@ -3440,7 +3586,7 @@ export declare const BUILTIN_ACTIONS: {
     }, {
         readonly name: "config";
         readonly type: "keywords";
-        readonly description: "speed N (0.1–2, default 0.3), acceleration N (0.1–20, default 10), deceleration N (0–1, default 0.15), style teleport|slide|fade|jump, axis x|y|forward, steer N (turn rate multiplier, default 1), path ObjectName, facing";
+        readonly description: "speed N (0.1–2, default 0.3), acceleration N (0.1–20, default 10), deceleration N (0–1, default 0.15), style teleport|slide|fade|jump, axis x|y|forward, steer N (turn rate multiplier, default 1), path ObjectName, facing, traction, stable (default on — geometric collision, disable for physics objects), dodge N (obstacle sensing distance, default 0.15 — objects steer around blockers in their path, rod length scales with speed)";
     }] | [{
         readonly name: "target";
         readonly type: "string";
@@ -3520,7 +3666,7 @@ export declare const BUILTIN_ACTIONS: {
     }, {
         readonly name: "distance";
         readonly type: "number";
-        readonly description: "Preferred distance to maintain (0–1, default: 0 = reach target). Object stops when within distance.";
+        readonly description: "Preferred distance to maintain (default: 0 = reach target). Negative values mean overlap. Readable/writable at runtime as followDistance.";
     }, {
         readonly name: "deadZone";
         readonly type: "number";
@@ -3581,14 +3727,9 @@ export declare const BUILTIN_ACTIONS: {
         readonly description: "Override cell wind direction in degrees (0=right, 90=down, 0–360)";
         readonly optional: true;
     }, {
-        readonly name: "airResistance";
+        readonly name: "drag";
         readonly type: "number";
         readonly description: "Override cell drag coefficient (0–1, 0=vacuum, 1=thick)";
-        readonly optional: true;
-    }, {
-        readonly name: "friction";
-        readonly type: "number";
-        readonly description: "Override contact friction (0–1, 0=ice, 1=sticky)";
         readonly optional: true;
     }, {
         readonly name: "flowX";
@@ -3725,6 +3866,22 @@ export declare const BUILTIN_ACTIONS: {
     }] | [{
         readonly name: "target";
         readonly type: "string";
+        readonly description: "Object name, self, other, #tag, or all type";
+    }, {
+        readonly name: "tag";
+        readonly type: "string";
+        readonly description: "Tag to add (#tagName)";
+    }] | [{
+        readonly name: "target";
+        readonly type: "string";
+        readonly description: "Object name, self, other, #tag, or all type";
+    }, {
+        readonly name: "tag";
+        readonly type: "string";
+        readonly description: "Tag to remove (#tagName)";
+    }] | [{
+        readonly name: "target";
+        readonly type: "string";
         readonly description: "Mask object name";
     }, {
         readonly name: "revealer";
@@ -3735,8 +3892,8 @@ export declare const BUILTIN_ACTIONS: {
 }[];
 export declare const BUILTIN_FUNCTIONS: {
     name: string;
-    description: "Cell has been visited" | "Check if save slot exists" | "Visit count" | "Cell has object" | "Get variable value" | "Random number" | "Round down" | "Round up" | "Round to nearest" | "Absolute value" | "Minimum value" | "Maximum value" | "Sine (degrees)" | "Cosine (degrees)" | "Angle from coordinates" | "Angle to cardinal direction" | "Array/string length" | "Generate number sequence" | "Randomize array" | "Random element" | "Check grid cell empty" | "Get empty grid cells" | "Find grid cells by data" | "Find connected grid cells" | "AI best move (minimax)" | "Hash values to integer" | "Distance between objects" | "Objects within radius" | "Closest matching object" | "Collision shape overlap" | "Line of sight on grid" | "A* pathfinding on grid" | "Generate maze on grid";
-    example: "if visited(\"SecretRoom\"):" | "if hasSave(\"checkpoint\"):" | "if visits(\"this\") > 1:" | "if hasObject(\"Key\"):" | "if get(\"score\") > 100:" | "set roll random(1, 6)" | "set whole floor(3.7)  // 3" | "set whole ceil(3.2)  // 4" | "set whole round(3.5)  // 4" | "set dist abs(x - targetX)" | "set lowest min(a, b, c)" | "set highest max(a, b, c)" | "set vx cos(self.rotation) * speed\nset vy sin(self.rotation) * speed" | "set vx cos(self.rotation) * speed" | "set angle atan2(target.y - self.y, target.x - self.x)" | "set self.state cardinal(moveAngle)" | "if length(items) > 0:" | "foreach i in range(0, 5):" | "set deck shuffle(cards)" | "set winner pick(players)" | "if isEmpty(\"Grid1\", 2, 3):" | "set available emptyCells(\"Grid1\")" | "// Find cells marked as \"red\"\nset redCells cellsWhere(\"Board\", \"color\", \"==\", \"red\")\n\n// Find cells owned by player 1\nset p1Cells cellsWhere(\"Board\", \"owner\", \"==\", 1)" | "// Find all cells connected through occupied cells (8-way default)\nset connected floodfill(\"GRID\", 4, 4, \"occupied\", true)\n\n// 4-way connectivity (cardinal directions only)\nset connected floodfill(\"GRID\", 4, 4, \"occupied\", true, 4)\n\n// Match-3: find connected same-color cells\nset cluster floodfill(\"Board\", clickX, clickY, \"color\", \"red\")\nif length(cluster) >= 3:\n  // Clear the cluster" | "// Connect4 AI move\nset bestCol minimax(\"Board\", \"owner\", \"YELLOW\", \"RED\", 4)\nset col bestCol\nStart.dropPiece\n\n// Tic-tac-toe (3x3, win=3)\nset bestCol minimax(\"Grid\", \"mark\", \"O\", \"X\", 6, 0, 3)" | "// Hash ball positions\nset seed hash(#balls.x, #balls.y)\n\n// Hash single values\nset id hash(x, y, z)\n\n// Hash any properties\nset seed hash(#pieces.cellX, #pieces.cellY)" | "if distance(self, Enemy) < 0.2:\n  impulse self 0 -0.5" | "set enemies nearby(self, 0.2, #enemy)\nif length(enemies) > 0:\n  set closest enemies[0]" | "set target nearest(self, #coin)\nif target != 0:\n  set dx target.x - self.x\n\n// Check spawn position is clear\nset sx random\nset sy random\nif nearest(sx, sy, #enemy).distance > 0.1:\n  spawn \"Enemy\" {x: sx, y: sy}\n\n// 2nd nearest enemy\nset second nearest(self, #enemy, 2)" | "if intersects(Sword, Enemy):\n  destroy Enemy\nif intersects(self, #coin):\n  set score score + 1" | "if canSee(\"Grid\", self.cellX, self.cellY, Player.cellX, Player.cellY, \"wall\"):\n  shout \"SPOTTED\"" | "set path pathfind(\"Grid\", self.cellX, self.cellY, Goal.cellX, Goal.cellY, \"wall\")\nif length(path) > 0:\n  set nextStep path[0]" | "generateMaze(\"Grid\", \"wall\")\n// Grid.cell[x][y].wall is now true for walls, false for passages";
+    description: "Cell has been visited" | "Check if save slot exists" | "Visit count" | "Cell has object" | "Get variable value" | "Random number" | "Round down" | "Round up" | "Round to nearest" | "Absolute value" | "Minimum value" | "Maximum value" | "Sine (degrees)" | "Cosine (degrees)" | "Angle from coordinates" | "Angle to cardinal direction" | "Array/string length" | "Generate number sequence" | "Randomize array" | "Random element" | "Check grid cell empty" | "Get empty grid cells" | "Find grid cells by data" | "Find connected grid cells" | "AI best move (minimax)" | "Hash values to integer" | "Distance between objects" | "Random unblocked position" | "Objects within radius" | "Closest matching object" | "Collision shape overlap" | "Line of sight on grid" | "A* pathfinding on grid" | "Generate maze on grid";
+    example: "if visited(\"SecretRoom\"):" | "if hasSave(\"checkpoint\"):" | "if visits(\"this\") > 1:" | "if hasObject(\"Key\"):" | "if get(\"score\") > 100:" | "set roll random(1, 6)" | "set whole floor(3.7)  // 3" | "set whole ceil(3.2)  // 4" | "set whole round(3.5)  // 4" | "set dist abs(x - targetX)" | "set lowest min(a, b, c)" | "set highest max(a, b, c)" | "set vx cos(self.rotation) * speed\nset vy sin(self.rotation) * speed" | "set vx cos(self.rotation) * speed" | "set angle atan2(target.y - self.y, target.x - self.x)" | "set self.state cardinal(moveAngle)" | "if length(items) > 0:" | "foreach i in range(0, 5):" | "set deck shuffle(cards)" | "set winner pick(players)" | "if isEmpty(\"Grid1\", 2, 3):" | "set available emptyCells(\"Grid1\")" | "// Find cells marked as \"red\"\nset redCells cellsWhere(\"Board\", \"color\", \"==\", \"red\")\n\n// Find cells owned by player 1\nset p1Cells cellsWhere(\"Board\", \"owner\", \"==\", 1)" | "// Find all cells connected through occupied cells (8-way default)\nset connected floodfill(\"GRID\", 4, 4, \"occupied\", true)\n\n// 4-way connectivity (cardinal directions only)\nset connected floodfill(\"GRID\", 4, 4, \"occupied\", true, 4)\n\n// Match-3: find connected same-color cells\nset cluster floodfill(\"Board\", clickX, clickY, \"color\", \"red\")\nif length(cluster) >= 3:\n  // Clear the cluster" | "// Tic-tac-toe (3x3, win=3)\nset move minimax(\"Board\", \"mark\", \"O\", \"X\", 6, 0, 3)\nif move != 0:\n  set Board.cell[move.x][move.y].mark \"O\"" | "// Hash ball positions\nset seed hash(#balls.x, #balls.y)\n\n// Hash single values\nset id hash(x, y, z)\n\n// Hash any properties\nset seed hash(#pieces.cellX, #pieces.cellY)" | "if distance(self, Enemy) < 0.2:\n  impulse self 0 -0.5" | "set target randomFree(self, 0.3)\nmoveTo self target.x target.y\n\n// Patrol around fixed point\nset homeX self.x\nset homeY self.y\nset target randomFree(homeX, homeY, 0.3)" | "set enemies nearby(self, 0.2, #enemy)\nif length(enemies) > 0:\n  set closest enemies[0]" | "// Store result in variable, then read fields\nset target nearest(self, #coin)\nif target != 0:\n  set dx target.x - self.x\n  set dy target.y - self.y\n\n// To store per-object, copy fields to properties\nset tmp nearest(parent, #enemy)\nset self.enemyX tmp.x\nset self.enemyY tmp.y\nset self.enemyDist tmp.distance\n\n// 2nd nearest enemy\nset second nearest(self, #enemy, 2)" | "if intersects(Sword, Enemy):\n  destroy Enemy\nif intersects(self, #coin):\n  set score score + 1" | "if canSee(\"Grid\", self.cellX, self.cellY, Player.cellX, Player.cellY, \"wall\"):\n  shout \"SPOTTED\"" | "set path pathfind(\"Grid\", self.cellX, self.cellY, Goal.cellX, Goal.cellY, \"wall\")\nif length(path) > 0:\n  set nextStep path[0]" | "generateMaze(\"Grid\", \"wall\")\n// Grid.cell[x][y].wall is now true for walls, false for passages";
     args: [{
         readonly name: "cell";
         readonly type: "string";
@@ -3902,11 +4059,11 @@ export declare const BUILTIN_FUNCTIONS: {
     }, {
         readonly name: "aiPlayer";
         readonly type: "any";
-        readonly description: "AI player value (e.g., \"YELLOW\")";
+        readonly description: "AI player value (e.g., \"O\")";
     }, {
         readonly name: "humanPlayer";
         readonly type: "any";
-        readonly description: "Human player value (e.g., \"RED\")";
+        readonly description: "Human player value (e.g., \"X\")";
     }, {
         readonly name: "depth";
         readonly type: "number";
@@ -3919,7 +4076,12 @@ export declare const BUILTIN_FUNCTIONS: {
     }, {
         readonly name: "winLength";
         readonly type: "number";
-        readonly description: "Pieces to win (default: 4)";
+        readonly description: "Pieces in a row to win (default: 4)";
+        readonly optional: true;
+    }, {
+        readonly name: "drop";
+        readonly type: "string";
+        readonly description: "Pass \"drop\" for column-drop games like Connect-4 (pieces fall to lowest empty row)";
         readonly optional: true;
     }] | [{
         readonly name: "values";
@@ -3933,6 +4095,19 @@ export declare const BUILTIN_FUNCTIONS: {
         readonly name: "objectB";
         readonly type: "object";
         readonly description: "Second object (self, other, or name)";
+    }] | [{
+        readonly name: "center";
+        readonly type: "object";
+        readonly description: "Center object or X coordinate";
+    }, {
+        readonly name: "radius";
+        readonly type: "number";
+        readonly description: "Search radius (or Y coordinate if first arg is number)";
+    }, {
+        readonly name: "radius2";
+        readonly type: "number";
+        readonly description: "Search radius (when using x, y coordinates)";
+        readonly optional: true;
     }] | [{
         readonly name: "object";
         readonly type: "object";
@@ -4032,12 +4207,12 @@ export declare const BUILTIN_FUNCTIONS: {
         readonly description: "Cell data property for walls (default: \"wall\")";
         readonly optional: true;
     }];
-    returns: "string" | "number" | "boolean" | "array" | "any" | "object|0";
+    returns: "string" | "number" | "boolean" | "object" | "array" | "any" | "object|0";
 }[];
 export declare const BUILTIN_VARIABLES: {
     name: string;
     description: "Random 0-1 value" | "Current cell name" | "Click count" | "Pointer X in world units" | "Pointer Y in world units" | "Frame time in seconds" | "Other object in collision/overlap" | "True on fresh start, false on save restore" | "Reference to current object";
-    example: "if random < 0.5:" | "if currentCell == \"Start\":" | "if clicks == 3:" | "set marker.x clickX" | "set marker.y clickY" | "set self.rotation self.rotation + 180 * deltaTime" | "if other hasTag #missile:\n  set health health - 1" | "onEnter:\n  if newGame:\n    spawn \"Enemy\" {x: 0.5, y: 0.5}" | "set self.health 100\nif self.health <= 0:\n  destroy self";
+    example: "if random < 0.5:" | "if currentCell == \"Start\":" | "if clicks == 3:" | "set marker.x clickX" | "set marker.y clickY" | "set self.rotation self.rotation + 180 * deltaTime" | "if other is #missile:\n  set health health - 1" | "onEnter:\n  if newGame:\n    spawn \"Enemy\" {x: 0.5, y: 0.5}" | "set self.health 100\nif self.health <= 0:\n  destroy self";
 }[];
 export declare const LOGIC_OPERATORS: {
     name: string;
@@ -4046,7 +4221,7 @@ export declare const LOGIC_OPERATORS: {
 }[];
 export declare const EVENT_SNIPPETS: {
     name: string;
-    description: "When entering cell" | "When leaving cell" | "When clicked" | "When key pressed" | "When key released" | "When message received" | "When message from specific source" | "When overlap starts" | "When overlap ends" | "When collision occurs" | "When peg constraint breaks" | "When mouse enters" | "When mouse leaves" | "When drag begins" | "While being dragged" | "When drag ends" | "When movement direction changes" | "When rotation direction changes" | "When movement stops" | "When rotation stops" | "Every physics frame" | "When object jumps" | "When object lands" | "When object is spawned" | "Before object is destroyed" | "When text input is submitted" | "When text input loses focus";
+    description: "When entering cell" | "When leaving cell" | "When clicked" | "When key pressed" | "When key released" | "When message received" | "When message from specific source" | "When overlap starts" | "When overlap ends" | "When collision occurs" | "When peg constraint breaks" | "When mouse enters" | "When mouse leaves" | "When drag begins" | "While being dragged" | "When drag ends" | "When movement direction changes" | "When rotation direction changes" | "When movement stops" | "When moveTo destination is reached" | "When rotation stops" | "When object crosses cell boundary" | "When audio playback finishes" | "Every physics frame" | "When object jumps" | "When object lands" | "When object is spawned" | "Before object is destroyed" | "When text input is submitted" | "When text input loses focus";
     snippet: string;
     validFor: ["cell", "object"] | ["cell"] | ["object"];
 }[];

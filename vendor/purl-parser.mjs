@@ -36,12 +36,12 @@ var KEYWORDS = [
   "onhoverend",
   "onmove",
   "onstop",
+  "onarrive",
   "onjump",
   "onlanding",
   "with",
   "next",
   "prev",
-  "pageable",
   "movable",
   "jumpable",
   "wrap",
@@ -67,6 +67,8 @@ var KEYWORDS = [
   "in",
   "is",
   "log",
+  "openUrl",
+  "newTab",
   "shake",
   "vibrate",
   "pulse",
@@ -99,6 +101,7 @@ var KEYWORDS = [
   "ondragstart",
   "ondrag",
   "ondragend",
+  "onaudioend",
   "once",
   "collision",
   "discrete",
@@ -116,6 +119,8 @@ var KEYWORDS = [
   "pause",
   "jump",
   "impulse",
+  "fadein",
+  "fadeout",
   "fresh",
   "clean",
   "reveal",
@@ -129,7 +134,9 @@ var KEYWORDS = [
   "delete",
   "endgame",
   "press",
-  "release"
+  "release",
+  "addtag",
+  "removetag"
 ];
 var ANIMATION_KEYWORDS = ["shake", "vibrate", "pulse", "squeeze", "bounce", "spin", "glow"];
 var TYPE_SELECTORS = {
@@ -369,10 +376,13 @@ function parseComparison(ctx) {
   }
   if (ctx.check("KEYWORD") && ctx.peek().value === "is") {
     ctx.advance();
+    const negated = ctx.check("KEYWORD") && ctx.peek().value === "not";
+    if (negated) ctx.advance();
     if (ctx.check("TAG")) {
       const tagName = ctx.advance().value;
       const right = { type: "tag", name: tagName };
       left = { type: "binary", operator: "is", left, right };
+      if (negated) left = { type: "unary", operator: "not", operand: left };
     } else {
       ctx.error("Expected tag after 'is' (e.g., 'is #enemy')");
     }
@@ -639,8 +649,8 @@ function parsePrimary(ctx) {
           const property2 = parts.slice(statesIndex).join(".");
           return { type: "property", object: object2, property: property2 };
         }
-        const FILL_LAYER_TYPES = ["color", "image", "gradient", "pattern", "noise", "fill"];
-        if (parts.length >= 3 && FILL_LAYER_TYPES.includes(parts[parts.length - 2])) {
+        const COMPOUND_PREFIXES = ["color", "image", "gradient", "pattern", "noise", "fill", "keys"];
+        if (parts.length >= 3 && COMPOUND_PREFIXES.includes(parts[parts.length - 2])) {
           const property2 = parts.slice(-2).join(".");
           const object2 = parts.slice(0, -2).join(".");
           return { type: "property", object: object2, property: property2 };
@@ -670,19 +680,34 @@ function parseIdentifierOrString(ctx) {
   return "";
 }
 function parseCellScopedTarget(ctx) {
+  const collectDottedSuffix = (head) => {
+    const parts = [head];
+    while (ctx.check("DOT")) {
+      ctx.advance();
+      const tok = ctx.peek();
+      if (tok.type === "IDENTIFIER" || tok.type === "KEYWORD") {
+        ctx.advance();
+        parts.push(tok.value);
+      } else {
+        ctx.error(`Expected identifier after '.', got ${tok.type}`);
+        break;
+      }
+    }
+    return parts.join(".");
+  };
   if (ctx.check("AT")) {
     ctx.advance();
     const cellName = parseIdentifierOrString(ctx);
     if (ctx.check("DOT")) {
       ctx.advance();
-      const objectName = parseIdentifierOrString(ctx);
+      const objectName = collectDottedSuffix(parseIdentifierOrString(ctx));
       return { cell: cellName, target: objectName };
     } else {
       ctx.error(`Expected '.' after cell name in @${cellName}`);
       return { cell: cellName, target: "" };
     }
   }
-  const target = parseIdentifierOrString(ctx);
+  const target = collectDottedSuffix(parseIdentifierOrString(ctx));
   return { target };
 }
 
@@ -845,12 +870,11 @@ var INITIAL_GAME_STATE = {
   visitCounts: {},
   propertyOverrides: {},
   clickIndices: {},
-  pageables: {},
   gridCellData: {},
   camera: { ...INITIAL_CAMERA_STATE }
 };
 var GOTO_TRANSITIONS = ["fade", "slide-left", "slide-right", "slide-up", "slide-down", "zoom"];
-var VISIBILITY_TRANSITIONS = ["fade", "slide-up", "slide-down", "scale"];
+var VISIBILITY_TRANSITIONS = ["fade", "slide-up", "slide-down", "scale", "typewriter", "word", "scramble", "redact"];
 
 // src/utils/script/parsers/navigation.ts
 function parseTransition(ctx, validTypes) {
@@ -909,54 +933,6 @@ function parseGoto(ctx) {
   const resetLevel = parseResetLevel();
   const transition = parseTransition(ctx, GOTO_TRANSITIONS);
   return { type: "goto", target, resetLevel, transition, loc: startLoc };
-}
-function parseNext(ctx) {
-  ctx.expect("KEYWORD", "next");
-  const target = parseIdentifierOrString(ctx);
-  const transition = parseTransition(ctx, VISIBILITY_TRANSITIONS);
-  let wrap = false;
-  if (ctx.check("KEYWORD") && ctx.peek().value === "wrap") {
-    ctx.advance();
-    wrap = true;
-  }
-  let elseStmts;
-  if (ctx.check("KEYWORD") && ctx.peek().value === "else") {
-    ctx.advance();
-    elseStmts = parseBlock(ctx);
-  }
-  const result = { type: "next", target };
-  if (transition) result.transition = transition;
-  if (wrap) result.wrap = true;
-  if (elseStmts && elseStmts.length > 0) result.else = elseStmts;
-  return result;
-}
-function parsePrev(ctx) {
-  ctx.expect("KEYWORD", "prev");
-  const target = parseIdentifierOrString(ctx);
-  const transition = parseTransition(ctx, VISIBILITY_TRANSITIONS);
-  let wrap = false;
-  if (ctx.check("KEYWORD") && ctx.peek().value === "wrap") {
-    ctx.advance();
-    wrap = true;
-  }
-  let elseStmts;
-  if (ctx.check("KEYWORD") && ctx.peek().value === "else") {
-    ctx.advance();
-    elseStmts = parseBlock(ctx);
-  }
-  const result = { type: "prev", target };
-  if (transition) result.transition = transition;
-  if (wrap) result.wrap = true;
-  if (elseStmts && elseStmts.length > 0) result.else = elseStmts;
-  return result;
-}
-function parseWrap(ctx) {
-  ctx.expect("KEYWORD", "wrap");
-  const target = parseIdentifierOrString(ctx);
-  const transition = parseTransition(ctx, VISIBILITY_TRANSITIONS);
-  const result = { type: "wrap", target };
-  if (transition) result.transition = transition;
-  return result;
 }
 function parseCellTransition(ctx) {
   const startLoc = ctx.loc();
@@ -1133,7 +1109,16 @@ function parseSet(ctx) {
         ctx.advance();
         const property = propToken.value;
         const value2 = parseExpression(ctx);
-        return { type: "set-grid-cell", gridName, x: xExpr, y: yExpr, property, value: value2 };
+        const over = parseOverClause(ctx);
+        return {
+          type: "set-grid-cell",
+          gridName,
+          x: xExpr,
+          y: yExpr,
+          property,
+          value: value2,
+          ...over && { duration: over.duration, easing: over.easing }
+        };
       }
     }
   }
@@ -1162,8 +1147,8 @@ function parseSet(ctx) {
       }
     }
     if (parts.length >= 2) {
-      const FILL_LAYER_TYPES = ["color", "image", "gradient", "pattern", "noise", "fill"];
-      if (parts.length >= 3 && FILL_LAYER_TYPES.includes(parts[parts.length - 2])) {
+      const COMPOUND_PREFIXES = ["color", "image", "gradient", "pattern", "noise", "fill", "keys"];
+      if (parts.length >= 3 && COMPOUND_PREFIXES.includes(parts[parts.length - 2])) {
         const property2 = parts.slice(-2).join(".");
         const object2 = parts.slice(0, -2).join(".");
         const value3 = parseExpression(ctx);
@@ -1172,6 +1157,21 @@ function parseSet(ctx) {
       }
       const property = parts.pop();
       const object = parts.join(".");
+      if (property === "zIndex") {
+        const next = ctx.peek();
+        if ((next.type === "IDENTIFIER" || next.type === "KEYWORD") && (next.value === "above" || next.value === "below")) {
+          const relation = next.value;
+          ctx.advance();
+          const ref = parseIdentifierOrString(ctx);
+          return {
+            type: "set-property",
+            object,
+            property,
+            value: { type: "literal", value: 0 },
+            zOrder: { relation, ref }
+          };
+        }
+      }
       const value2 = parseExpression(ctx);
       if (property === "state") {
         const STATE_MODIFIERS = /* @__PURE__ */ new Set(["none", "position", "rotate", "scale"]);
@@ -1186,9 +1186,7 @@ function parseSet(ctx) {
           }
         }
         const over2 = parseOverClause(ctx);
-        if (modifiers.length > 0 || over2) {
-          return { type: "set-state", object, value: value2, modifiers, ...over2 && { duration: over2.duration, easing: over2.easing, rotationDirection: over2.rotationDirection } };
-        }
+        return { type: "set-state", object, value: value2, modifiers, ...over2 && { duration: over2.duration, easing: over2.easing, rotationDirection: over2.rotationDirection } };
       }
       const over = parseOverClause(ctx);
       return { type: "set-property", object, property, value: value2, ...over && { duration: over.duration, easing: over.easing } };
@@ -1211,6 +1209,10 @@ function parseReset(ctx) {
 }
 function parseRestart(ctx) {
   ctx.expect("KEYWORD", "restart");
+  if (ctx.peek()?.value === "cell") {
+    ctx.advance();
+    return { type: "restart", scope: "cell" };
+  }
   return { type: "restart" };
 }
 function parseEndGame(ctx) {
@@ -1283,7 +1285,6 @@ var CAPABILITY_KEYWORDS = /* @__PURE__ */ new Set([
   "gamepad",
   "script",
   "subject",
-  "pageable",
   "follow",
   "avoid",
   "zone",
@@ -1294,9 +1295,9 @@ var CAPABILITY_KEYWORDS = /* @__PURE__ */ new Set([
 function parseTarget(ctx) {
   if (ctx.check("TAG")) {
     const tagToken = ctx.advance();
-    return `#${tagToken.value}`;
+    return { type: "literal", value: `#${tagToken.value}` };
   }
-  return parseIdentifierOrString(ctx);
+  return parseExpression(ctx);
 }
 function parseEnable(ctx) {
   const startToken = ctx.peek();
@@ -1304,7 +1305,7 @@ function parseEnable(ctx) {
   const target = parseTarget(ctx);
   const capToken = ctx.peek();
   if (capToken.type !== "KEYWORD" && capToken.type !== "IDENTIFIER" || !CAPABILITY_KEYWORDS.has(capToken.value.toLowerCase())) {
-    ctx.error(`Expected capability keyword (movable, jumpable, draggable, keyboard, click, gamepad, script, subject, pageable, follow, avoid, zone, blocking, sensor, phase), got '${capToken.value}'`);
+    ctx.error(`Expected capability keyword (movable, jumpable, draggable, keyboard, click, gamepad, script, subject, follow, avoid, zone, blocking, sensor, phase), got '${capToken.value}'`);
     return { type: "enable", target, capability: "movable", loc: { line: startToken.line + 1 } };
   }
   ctx.advance();
@@ -1326,9 +1327,6 @@ function parseEnable(ctx) {
     case "draggable":
       parseDraggableConfig(ctx, stmt);
       break;
-    case "pageable":
-      parsePageableConfig(ctx, stmt);
-      break;
     case "follow":
       parseFollowConfig(ctx, stmt, rawCapability === "avoid");
       break;
@@ -1349,7 +1347,7 @@ function parseDisable(ctx) {
   const target = parseTarget(ctx);
   const capToken = ctx.peek();
   if (capToken.type !== "KEYWORD" && capToken.type !== "IDENTIFIER" || !CAPABILITY_KEYWORDS.has(capToken.value.toLowerCase())) {
-    ctx.error(`Expected capability keyword (movable, jumpable, draggable, keyboard, click, gamepad, script, subject, pageable, follow, avoid, zone, blocking, sensor, phase), got '${capToken.value}'`);
+    ctx.error(`Expected capability keyword (movable, jumpable, draggable, keyboard, click, gamepad, script, subject, follow, avoid, zone, blocking, sensor, phase), got '${capToken.value}'`);
     return { type: "disable", target, capability: "movable", loc: { line: startToken.line + 1 } };
   }
   ctx.advance();
@@ -1392,12 +1390,38 @@ function parseMovableConfig(ctx, stmt) {
     } else if (configKey === "path") {
       ctx.advance();
       stmt.pathId = parseExpression(ctx);
+      for (let _pi = 0; _pi < 2; _pi++) {
+        if ((ctx.check("IDENTIFIER") || ctx.check("KEYWORD")) && ctx.peek().value.toLowerCase() === "reverse") {
+          ctx.advance();
+          stmt.pathReverse = true;
+        } else if ((ctx.check("IDENTIFIER") || ctx.check("KEYWORD")) && ctx.peek().value.toLowerCase() === "span") {
+          ctx.advance();
+          stmt.pathContactSpan = parseExpression(ctx);
+        } else break;
+      }
+    } else if (configKey === "facetravel") {
+      ctx.advance();
+      stmt.faceTravel = true;
+      if ((ctx.check("IDENTIFIER") || ctx.check("KEYWORD")) && ctx.peek().value.toLowerCase() === "turnaround") {
+        ctx.advance();
+        stmt.turnaround = true;
+      }
     } else if (configKey === "facing") {
       ctx.advance();
       stmt.faceMovement = true;
     } else if (configKey === "traction") {
       ctx.advance();
       stmt.traction = true;
+    } else if (configKey === "stable") {
+      ctx.advance();
+      stmt.stable = true;
+    } else if (configKey === "dodge") {
+      ctx.advance();
+      if (ctx.check("NUMBER")) {
+        stmt.dodge = { type: "literal", value: parseFloat(ctx.advance().value) };
+      } else {
+        stmt.dodge = { type: "literal", value: 0.15 };
+      }
     } else {
       break;
     }
@@ -1443,55 +1467,16 @@ function parseDraggableConfig(ctx, stmt) {
     }
   }
 }
-function parsePageableConfig(ctx, stmt) {
-  const isEndOfStatement = ctx.check("NEWLINE") || ctx.check("DEDENT") || ctx.isAtEnd() || ctx.check("RBRACE");
-  if (isEndOfStatement) {
-    stmt.items = [];
-    stmt.useStructureOrder = true;
-    return;
-  }
-  const hasBrackets = ctx.check("LBRACKET");
-  if (hasBrackets) {
-    ctx.advance();
-  }
-  const items = [];
-  const endCheck = hasBrackets ? () => ctx.check("RBRACKET") : () => ctx.check("NEWLINE") || ctx.check("DEDENT") || ctx.isAtEnd() || ctx.check("RBRACE");
-  while (!endCheck()) {
-    const token = ctx.peek();
-    if (token.type !== "IDENTIFIER" && token.type !== "STRING" && token.type !== "KEYWORD") {
-      break;
-    }
-    const item = parseIdentifierOrString(ctx);
-    if (item) items.push(item);
-    if (ctx.check("COMMA")) {
-      ctx.advance();
-    }
-  }
-  if (hasBrackets) {
-    if (ctx.check("RBRACKET")) {
-      ctx.advance();
-    } else {
-      ctx.error(`Expected ']' to close pageable list`);
-    }
-  }
-  if (items.length === 0) {
-    stmt.items = [];
-    stmt.useStructureOrder = true;
-  } else {
-    stmt.items = items;
-  }
-}
 function parseZoneConfig(ctx, stmt) {
   while (ctx.check("IDENTIFIER") || ctx.check("KEYWORD")) {
     const configKey = ctx.peek().value.toLowerCase();
-    if (configKey === "gravity" || configKey === "wind" || configKey === "airresistance" || configKey === "friction" || configKey === "flowx" || configKey === "flowy") {
+    if (configKey === "gravity" || configKey === "wind" || configKey === "drag" || configKey === "flowx" || configKey === "flowy") {
       ctx.advance();
       const expr = parseExpression(ctx);
       const fieldMap = {
         gravity: "zoneGravity",
         wind: "zoneWind",
-        airresistance: "zoneAirResistance",
-        friction: "zoneFriction",
+        drag: "zoneDrag",
         flowx: "zoneFlowX",
         flowy: "zoneFlowY"
       };
@@ -1528,7 +1513,7 @@ function parseAffectsConfig(ctx, stmt) {
 function parseFollowConfig(ctx, stmt, isAvoid) {
   stmt.followAvoid = isAvoid;
   if (ctx.check("STRING") || ctx.check("IDENTIFIER") || ctx.check("KEYWORD")) {
-    stmt.followTarget = parseIdentifierOrString(ctx);
+    stmt.followTarget = parseExpression(ctx);
   } else {
     ctx.error(`Expected target object name after ${isAvoid ? "avoid" : "follow"}`);
     return;
@@ -1550,6 +1535,12 @@ function parseFollowConfig(ctx, stmt, isAvoid) {
     } else if (configKey === "pathfinding") {
       ctx.advance();
       stmt.followPathfinding = true;
+    } else if (configKey === "center") {
+      ctx.advance();
+      stmt.followCenter = true;
+    } else if (configKey === "rigid") {
+      ctx.advance();
+      stmt.followRigid = true;
     } else {
       break;
     }
@@ -1683,9 +1674,15 @@ function parseShout(ctx) {
       ctx.advance();
     }
   }
+  let isGlobal = false;
+  if ((ctx.check("IDENTIFIER") || ctx.check("KEYWORD")) && ctx.peek().value.toLowerCase() === "global") {
+    ctx.advance();
+    isGlobal = true;
+  }
   const result = { type: "shout", message, loc: startLoc };
   if (target) result.target = target;
   if (params && Object.keys(params).length > 0) result.params = params;
+  if (isGlobal) result.global = true;
   return result;
 }
 function parsePost(ctx) {
@@ -1740,6 +1737,17 @@ function parseLog(ctx) {
     }
   }
   return { type: "log", expressions, loc: startLoc };
+}
+function parseOpenUrl(ctx) {
+  const startLoc = ctx.loc();
+  ctx.expect("KEYWORD", "openUrl");
+  const url = parseExpression(ctx);
+  let newTab = false;
+  if (ctx.check("KEYWORD") && ctx.peek().value === "newTab") {
+    ctx.advance();
+    newTab = true;
+  }
+  return { type: "openUrl", url, newTab, loc: startLoc };
 }
 function parseDurationValue(value) {
   if (value.endsWith("ms")) {
@@ -1852,14 +1860,24 @@ function parseStopAnimation(ctx) {
     target = parseIdentifierOrString(ctx);
   }
   let animation;
-  if (!ctx.isAtEnd() && !ctx.check("NEWLINE") && !ctx.check("DEDENT") && !ctx.check("RBRACE")) {
+  let fadeOut;
+  while (!ctx.isAtEnd() && !ctx.check("NEWLINE") && !ctx.check("DEDENT") && !ctx.check("RBRACE")) {
     const nextToken = ctx.peek();
     if (nextToken.type === "KEYWORD" && ANIMATION_KEYWORDS.includes(nextToken.value)) {
       ctx.advance();
       animation = nextToken.value;
+    } else if ((nextToken.type === "KEYWORD" || nextToken.type === "IDENTIFIER") && nextToken.value.toLowerCase() === "fadeout") {
+      ctx.advance();
+      const durToken = ctx.advance();
+      fadeOut = Number(durToken.value);
+    } else {
+      break;
     }
   }
-  return { type: "stop-animation", target, animation, loc: startLoc };
+  const result = { type: "stop-animation", target, loc: startLoc };
+  if (animation) result.animation = animation;
+  if (fadeOut !== void 0) result.fadeOut = fadeOut;
+  return result;
 }
 function parseActionCall(ctx) {
   ctx.advance();
@@ -1907,7 +1925,17 @@ function parseClearGrid(ctx) {
 function parseSpawn(ctx) {
   const startLoc = ctx.loc();
   ctx.expect("KEYWORD", "spawn");
-  const templateName = parseIdentifierOrString(ctx);
+  let templateName = parseIdentifierOrString(ctx);
+  while (ctx.check("DOT")) {
+    ctx.advance();
+    const next = ctx.peek();
+    if (next.type === "IDENTIFIER" || next.type === "KEYWORD") {
+      ctx.advance();
+      templateName = templateName + "." + next.value;
+    } else {
+      break;
+    }
+  }
   let anchorName;
   if (ctx.check("KEYWORD") && ctx.peek().value === "at") {
     ctx.advance();
@@ -2069,19 +2097,41 @@ function parsePlay(ctx) {
   ctx.expect("KEYWORD", "play");
   const target = parseIdentifierOrString(ctx);
   let loop = false;
-  if (ctx.check("KEYWORD") && ctx.peek().value === "loop") {
-    ctx.advance();
-    loop = true;
+  let fadeIn;
+  while (!ctx.isAtEnd() && !ctx.check("NEWLINE") && !ctx.check("DEDENT") && !ctx.check("RBRACE")) {
+    const next = ctx.peek();
+    if (next.type === "KEYWORD" && next.value === "loop") {
+      ctx.advance();
+      loop = true;
+    } else if ((next.type === "KEYWORD" || next.type === "IDENTIFIER") && next.value.toLowerCase() === "fadein") {
+      ctx.advance();
+      const durToken = ctx.advance();
+      fadeIn = Number(durToken.value);
+    } else {
+      break;
+    }
   }
   const result = { type: "play", target, loc: startLoc };
   if (loop) result.loop = true;
+  if (fadeIn !== void 0) result.fadeIn = fadeIn;
   return result;
 }
 function parsePause(ctx) {
   const startLoc = ctx.loc();
   ctx.expect("KEYWORD", "pause");
   const target = parseIdentifierOrString(ctx);
-  return { type: "pause", target, loc: startLoc };
+  let fadeOut;
+  if (!ctx.isAtEnd() && !ctx.check("NEWLINE") && !ctx.check("DEDENT") && !ctx.check("RBRACE")) {
+    const next = ctx.peek();
+    if ((next.type === "KEYWORD" || next.type === "IDENTIFIER") && next.value.toLowerCase() === "fadeout") {
+      ctx.advance();
+      const durToken = ctx.advance();
+      fadeOut = Number(durToken.value);
+    }
+  }
+  const result = { type: "pause", target, loc: startLoc };
+  if (fadeOut !== void 0) result.fadeOut = fadeOut;
+  return result;
 }
 function parseImpulse(ctx) {
   const startLoc = ctx.loc();
@@ -2279,6 +2329,10 @@ function parseMoveTo(ctx) {
     }
   }
   const x = parseExpression(ctx);
+  if (isEndToken(ctx.peek())) {
+    const dummy = { type: "literal", value: 0 };
+    return { type: "moveTo", target, x: dummy, y: dummy, destinationExpr: x, loc: startLoc };
+  }
   const y = parseExpression(ctx);
   return { type: "moveTo", target, x, y, loc: startLoc };
 }
@@ -2307,6 +2361,60 @@ function parseRelease(ctx) {
   const result = { type: "release", key, loc: startLoc };
   if (target) result.target = target;
   return result;
+}
+function parseAddTag(ctx) {
+  const startLoc = ctx.loc();
+  ctx.expect("KEYWORD", "addtag");
+  let target;
+  if (ctx.check("TAG")) {
+    const tagToken = ctx.advance();
+    target = `tag:${tagToken.value}`;
+  } else if (ctx.check("KEYWORD") && ctx.peek().value === "all") {
+    ctx.advance();
+    const typeToken = ctx.peek();
+    if (typeToken.type === "IDENTIFIER" || typeToken.type === "KEYWORD") {
+      ctx.advance();
+      const resolvedType = TYPE_SELECTORS[typeToken.value.toLowerCase()];
+      target = resolvedType ? `all:${resolvedType}` : typeToken.value;
+    } else {
+      target = "all";
+    }
+  } else {
+    target = parseIdentifierOrString(ctx);
+  }
+  if (!ctx.check("TAG")) {
+    ctx.error("Expected #tag after target");
+    return { type: "add-tag", target, tag: "", loc: startLoc };
+  }
+  const tag = ctx.advance().value;
+  return { type: "add-tag", target, tag, loc: startLoc };
+}
+function parseRemoveTag(ctx) {
+  const startLoc = ctx.loc();
+  ctx.expect("KEYWORD", "removetag");
+  let target;
+  if (ctx.check("TAG")) {
+    const tagToken = ctx.advance();
+    target = `tag:${tagToken.value}`;
+  } else if (ctx.check("KEYWORD") && ctx.peek().value === "all") {
+    ctx.advance();
+    const typeToken = ctx.peek();
+    if (typeToken.type === "IDENTIFIER" || typeToken.type === "KEYWORD") {
+      ctx.advance();
+      const resolvedType = TYPE_SELECTORS[typeToken.value.toLowerCase()];
+      target = resolvedType ? `all:${resolvedType}` : typeToken.value;
+    } else {
+      target = "all";
+    }
+  } else {
+    target = parseIdentifierOrString(ctx);
+  }
+  if (!ctx.check("TAG")) {
+    ctx.error("Expected #tag after target");
+    return { type: "remove-tag", target, tag: "", loc: startLoc };
+  }
+  const tag = ctx.advance().value;
+  return { type: "remove-tag", target, tag, loc: startLoc };
 }
 
 // src/utils/scriptParser.ts
@@ -2372,12 +2480,6 @@ var Parser = class {
         return this.parseRestart();
       case "endgame":
         return this.parseEndGame();
-      case "next":
-        return this.parseNext();
-      case "prev":
-        return this.parsePrev();
-      case "wrap":
-        return this.parseWrap();
       case "shout":
         return this.parseShout();
       case "post":
@@ -2392,6 +2494,8 @@ var Parser = class {
         return this.parseRepeat();
       case "log":
         return this.parseLog();
+      case "openUrl":
+        return this.parseOpenUrl();
       case "shake":
       case "vibrate":
       case "pulse":
@@ -2452,6 +2556,10 @@ var Parser = class {
         return this.parsePress();
       case "release":
         return this.parseRelease();
+      case "addtag":
+        return this.parseAddTag();
+      case "removetag":
+        return this.parseRemoveTag();
       case "return":
         return this.parseReturn();
       case "break":
@@ -2478,15 +2586,6 @@ var Parser = class {
   // Navigation parsing - delegated to extracted module
   parseGoto() {
     return parseGoto(this);
-  }
-  parseNext() {
-    return parseNext(this);
-  }
-  parsePrev() {
-    return parsePrev(this);
-  }
-  parseWrap() {
-    return parseWrap(this);
   }
   parseCellTransition() {
     return parseCellTransition(this);
@@ -2553,6 +2652,9 @@ var Parser = class {
   parseLog() {
     return parseLog(this);
   }
+  parseOpenUrl() {
+    return parseOpenUrl(this);
+  }
   parseAnimate() {
     return parseAnimate(this);
   }
@@ -2609,6 +2711,12 @@ var Parser = class {
   }
   parseRelease() {
     return parseRelease(this);
+  }
+  parseAddTag() {
+    return parseAddTag(this);
+  }
+  parseRemoveTag() {
+    return parseRemoveTag(this);
   }
   parseActionCall() {
     return parseActionCall(this);
@@ -2769,8 +2877,20 @@ function parseSingleEvent(token) {
     return { event: "onRotate" };
   } else if (tokenLower === "onstop") {
     return { event: "onStop" };
+  } else if (tokenLower === "onarrive") {
+    return { event: "onArrive" };
   } else if (tokenLower === "onstoprotate") {
     return { event: "onStopRotate" };
+  } else if (tokenLower.startsWith("onbounds")) {
+    const afterEvent = token.slice(8).trim();
+    if (afterEvent) {
+      const dirMatch = afterEvent.match(/^["']([^"']+)["']/);
+      const direction = dirMatch ? dirMatch[1] : afterEvent;
+      return { event: "onBounds", direction };
+    }
+    return { event: "onBounds" };
+  } else if (tokenLower === "onaudioend") {
+    return { event: "onAudioEnd" };
   } else if (tokenLower === "ontick") {
     return { event: "onTick" };
   } else if (tokenLower === "onjump") {
@@ -3089,17 +3209,17 @@ onMessageFrom Controller "GAME_OVER":
   },
   onOverlap: {
     description: "When overlap starts",
-    longDescription: "Triggers when this object begins overlapping another object. At least one object in the pair must have sensor enabled. The other object is accessible via the `other` variable \u2014 read properties with other.property, check tags with `if other hasTag #tag`, and read custom variables (e.g., other.score).",
+    longDescription: "Triggers when this object begins overlapping another object. At least one object in the pair must have sensor enabled. The other object is accessible via the `other` variable \u2014 read properties with other.property, check tags with `if other is #tag`, and read custom variables (e.g., other.score).",
     validFor: ["object"],
     example: `onOverlap:
-  if other hasTag #coin:
+  if other is #coin:
     hide other
     set score score + 1`,
     notes: "Requires sensor property. Fires once on overlap start. `other` references the overlapping object \u2014 access its properties and custom variables."
   },
   onOverlapEnd: {
     description: "When overlap ends",
-    longDescription: "Triggers when this object stops overlapping another object that it was previously overlapping. The other object is accessible via the `other` variable \u2014 same access as onOverlap (other.property, other hasTag, other.customVar).",
+    longDescription: "Triggers when this object stops overlapping another object that it was previously overlapping. The other object is accessible via the `other` variable \u2014 same access as onOverlap (other.property, other is #tag, other.customVar).",
     validFor: ["object"],
     example: `onOverlapEnd:
   set inZone false`,
@@ -3107,10 +3227,10 @@ onMessageFrom Controller "GAME_OVER":
   },
   onCollide: {
     description: "When collision occurs",
-    longDescription: "Triggers when this object collides with a blocking object. Unlike onOverlap (which requires sensor), onCollide fires when physics collision resolution happens. The other object is accessible via the `other` variable \u2014 read its properties with other.property (other.name, other.x, other.visible) or check tags with `if other hasTag #tag`. You can also read custom object variables from the other object (e.g., other.damage).",
+    longDescription: "Triggers when this object collides with a blocking object. Unlike onOverlap (which requires sensor), onCollide fires when physics collision resolution happens. The other object is accessible via the `other` variable \u2014 read its properties with other.property (other.name, other.x, other.visible) or check tags with `if other is #tag`. You can also read custom object variables from the other object (e.g., other.damage).",
     validFor: ["object"],
     example: `onCollide:
-  if other hasTag #missile:
+  if other is #missile:
     set self.health self.health - other.damage
     destroy other`,
     notes: "Fires on physical collision with blocking objects. `other` references the colliding object \u2014 access its properties and custom variables. Works on both movers and blockers."
@@ -3204,6 +3324,15 @@ onRotate "ccw":
   set self.state "idle"`,
     notes: "Fires once when object comes to rest. Does not fire if object was already stopped."
   },
+  onArrive: {
+    description: "When moveTo destination is reached",
+    longDescription: "Triggers when this object reaches its moveTo target. Unlike onStop, does not fire when the object merely pauses (e.g., rotating at a path bend or hitting a wall). Use this for waypoint patrol, pickup collection, or any logic that depends on actual arrival.",
+    validFor: ["object"],
+    example: `onArrive:
+  log "Arrived!"
+  moveTo self NextWaypoint`,
+    notes: "Only fires when a moveTo or click-to-move target is reached. Does not fire for follow arrivals."
+  },
   onStopRotate: {
     description: "When rotation stops",
     longDescription: "Triggers when this object stops rotating. Useful for stopping rotation-linked animations or resetting state after steering.",
@@ -3211,6 +3340,29 @@ onRotate "ccw":
     example: `onStopRotate:
   stop animate self "tracks"`,
     notes: "Fires once when object stops rotating. Does not fire if object was already not rotating."
+  },
+  onBounds: {
+    description: "When object crosses cell boundary",
+    longDescription: "Fires when this object moves past the edge of the cell. Use optional direction filter to detect specific edges. Fires once per crossing \u2014 not every frame while outside.",
+    validFor: ["object"],
+    example: `onBounds:
+  destroy self
+
+onBounds "left":
+  set self.x Cell.width`,
+    parameters: [
+      { name: "direction", type: "string", description: '"left", "right", "top", "bottom"', optional: true }
+    ],
+    notes: "Only fires for movable objects. Direction filter matches the edge crossed."
+  },
+  onAudioEnd: {
+    description: "When audio playback finishes",
+    longDescription: "Fires when a non-looping audio object finishes playing. Useful for sequencing tracks or triggering actions after sound effects complete.",
+    validFor: ["object"],
+    example: `onAudioEnd:
+  play NextTrack`,
+    parameters: [],
+    notes: "Only fires for non-looping audio. Looping audio never ends naturally."
   },
   onTick: {
     description: "Every physics frame",
@@ -3406,12 +3558,13 @@ onClick:
     notes: 'Use for "quit game" buttons or end-of-game flows.'
   },
   restart: {
-    description: "Restart from start cell",
-    longDescription: 'Navigates to the start cell and performs a full reset (objects + variables). Equivalent to "goto StartCell fresh". Use for "game over / play again" functionality.',
+    description: "Restart from start cell or current cell",
+    longDescription: "Plain `restart` navigates to the start cell and performs a full reset (objects + variables). `restart cell` resets the current cell (objects + variables) without leaving it.",
     example: `onClick:
-  restart`,
-    parameters: [],
-    notes: 'Resets everything and goes back to the start cell. For staying on the current cell, use "reset objects" or "reset fresh" instead.'
+  restart          // back to start cell
+  restart cell     // restart current cell`,
+    parameters: [{ name: "cell", type: "keyword", optional: true, description: "If specified, restarts current cell instead of going to start" }],
+    notes: "`restart` = go to start cell + full reset. `restart cell` = stay on current cell + full reset."
   },
   save: {
     description: "Save game to named slot",
@@ -3478,47 +3631,6 @@ clear Board.cell[2][3]`,
     ],
     notes: 'Grid cell data is cleared automatically on reset("session").'
   },
-  "enable pageable": {
-    description: "Create pageable sequence",
-    longDescription: "Creates a pageable component that cycles through its children, showing one at a time. When created, the first item is shown and others are hidden. Use next/prev to navigate. You can either list items explicitly or omit the brackets to use the component's children order.",
-    example: `enable Slideshow pageable [Intro, Step1, Step2, Step3]
-// Or use children order:
-enable Slideshow pageable`,
-    parameters: [
-      { name: "target", type: "string", description: "Component name, self, siblings, children, #tag" },
-      { name: "items", type: "string[]", description: "List of object names to cycle through (optional - omit brackets to use component children)" }
-    ],
-    notes: "First item shown by default. Omit [items] to use the component's children sorted by z-index."
-  },
-  next: {
-    description: "Next pageable item",
-    longDescription: 'Advances to the next item in a pageable. Hides the current item and shows the next one. Use "wrap" to loop from last to first, or "else" for end action.',
-    example: `next Slideshow with fade wrap`,
-    parameters: [
-      { name: "target", type: "string", description: "Pageable name" }
-    ],
-    notes: 'Add "wrap" to loop, or "else <action>" for end behavior.'
-  },
-  prev: {
-    description: "Previous pageable item",
-    longDescription: 'Goes back to the previous item in a pageable. Hides the current item and shows the previous one. Use "wrap" to loop from first to last, or "else" for start action.',
-    example: `prev Slideshow with fade wrap`,
-    parameters: [
-      { name: "target", type: "string", description: "Pageable name" }
-    ],
-    notes: 'Add "wrap" to loop, or "else <action>" for start behavior.'
-  },
-  wrap: {
-    description: "Wrap pageable to first item",
-    longDescription: 'Wraps a pageable back to its first item. Useful inside "else" blocks of next/prev to wrap AND perform additional actions.',
-    example: `next Slideshow else:
-  wrap Slideshow
-  show LoopIndicator`,
-    parameters: [
-      { name: "target", type: "string", description: "Pageable name to wrap" }
-    ],
-    notes: "Can be used standalone or inside else blocks. Supports transitions: wrap Slideshow with fade"
-  },
   shout: {
     description: "Broadcast message",
     longDescription: "Broadcasts a message project-wide. Any object with a matching onMessage handler will react, regardless of which cell it is in. Objects CAN hear their own shouts, but infinite loops are blocked (cannot shout the same message from within its handler). Can include parameters that handlers can access as variables.",
@@ -3567,6 +3679,18 @@ release "e" on EnemyTank`,
       { name: "target", type: "string", description: "Object to target (default: self)", optional: true }
     ],
     notes: "All synthetic keys are auto-released on play mode exit."
+  },
+  openUrl: {
+    description: "Open URL in browser",
+    longDescription: 'Opens a URL in the browser. By default replaces the current window. Add "newTab" to open in a new tab instead. The URL can be a string literal, a variable, or a concatenated expression.',
+    example: `openUrl "https://example.com"
+openUrl "https://example.com/user/" + playerId newTab
+openUrl myUrl`,
+    parameters: [
+      { name: "url", type: "expression", description: "URL to open (string, variable, or expression)" },
+      { name: "newTab", type: "keyword", description: "Open in new tab instead of current window", optional: true }
+    ],
+    notes: "Browser popup blockers may prevent new tabs if not triggered by a direct user action (e.g. onClick)."
   },
   post: {
     description: "Send data to URL",
@@ -3732,30 +3856,36 @@ stop screenshake`,
   },
   stop: {
     description: "Stop animation or audio",
-    longDescription: "Stops any currently playing animation or audio on the target object. For audio, resets playback to the beginning. Supports tags and all-type selectors.",
+    longDescription: "Stops any currently playing animation or audio on the target object. For audio, resets playback to the beginning. Use fadeOut to gradually ramp volume to silence before stopping. Supports tags and all-type selectors.",
     example: `stop Gear
 stop #wheels
-stop Music`,
+stop Music
+stop Music fadeOut 2000`,
     parameters: [
-      { name: "target", type: "string", description: "Object name, #tag, or all type" }
+      { name: "target", type: "string", description: "Object name, #tag, or all type" },
+      { name: "fadeOut", type: "number", description: "Fade out duration in milliseconds (audio only)", optional: true }
     ]
   },
   play: {
     description: "Play audio",
-    longDescription: "Starts playback on an audio object. Optionally loop continuously. If audio was paused, resumes from the paused position.",
+    longDescription: "Starts playback on an audio object. Optionally loop continuously. Use fadeIn to gradually ramp volume from silence. If audio was paused, resumes from the paused position.",
     example: `play Music
-play SoundEffect loop`,
+play SoundEffect loop
+play Music fadeIn 2000`,
     parameters: [
       { name: "target", type: "string", description: "Audio object name" },
-      { name: "loop", type: "keyword", description: "Loop playback continuously", optional: true }
+      { name: "loop", type: "keyword", description: "Loop playback continuously", optional: true },
+      { name: "fadeIn", type: "number", description: "Fade in duration in milliseconds", optional: true }
     ]
   },
   pause: {
     description: "Pause audio",
-    longDescription: "Pauses playback on an audio object. Playback position is preserved and can be resumed with play.",
-    example: "pause Music",
+    longDescription: "Pauses playback on an audio object. Playback position is preserved and can be resumed with play. Use fadeOut to gradually ramp volume to silence before pausing.",
+    example: `pause Music
+pause Music fadeOut 1000`,
     parameters: [
-      { name: "target", type: "string", description: "Audio object name" }
+      { name: "target", type: "string", description: "Audio object name" },
+      { name: "fadeOut", type: "number", description: "Fade out duration in milliseconds", optional: true }
     ]
   },
   jump: {
@@ -3799,7 +3929,7 @@ transport #enemies to Player.x Player.y over 300`,
   },
   moveTo: {
     description: "Move to position or object (physical)",
-    longDescription: "Moves an object toward a target position or another object using its movable speed. Obeys physics \u2014 collides with blockers, affected by gravity. Object must have movable enabled. Fires onMove/onStop events.",
+    longDescription: "Moves an object toward a target position or another object using its movable speed. Obeys physics \u2014 collides with blockers, affected by gravity. Object must have movable enabled. Fires onArrive when destination is reached (use onArrive instead of onStop for waypoint logic).",
     example: `moveTo self 0.5 0.5
 moveTo Player 0.2 0.8
 moveTo #enemies Player.x Player.y
@@ -3897,7 +4027,7 @@ enable siblings movable speed 0.5
 disable Player movable`,
     parameters: [
       { name: "target", type: "string", description: "Object name, self, siblings, children, parent, #tag" },
-      { name: "config", type: "keywords", description: "speed N (0.1\u20132, default 0.3), acceleration N (0.1\u201320, default 10), deceleration N (0\u20131, default 0.15), style teleport|slide|fade|jump, axis x|y|forward, steer N (turn rate multiplier, default 1), path ObjectName, facing" }
+      { name: "config", type: "keywords", description: "speed N (0.1\u20132, default 0.3), acceleration N (0.1\u201320, default 10), deceleration N (0\u20131, default 0.15), style teleport|slide|fade|jump, axis x|y|forward, steer N (turn rate multiplier, default 1), path ObjectName, facing, traction, stable (default on \u2014 geometric collision, disable for physics objects), dodge N (obstacle sensing distance, default 0.15 \u2014 objects steer around blockers in their path, rod length scales with speed)" }
     ],
     notes: "Defaults: speed 0.3, acceleration 10, deceleration 0.15. Deceleration is 0\u20131 where 0=no decel (coast forever), 1=instant stop. Typical values: 0.05 (icy), 0.15 (normal), 0.5 (heavy). Use axis x or axis y to constrain movement to one axis. Use axis forward for tank-style controls where up/down moves along the facing direction and left/right rotates the body (rotation rate proportional to speed). Use path ObjectName to constrain movement along a path/curve shape. Use facing to auto-rotate the object toward its movement direction (smooth lerp, right side = front at 0\xB0). Mutually exclusive with rotatable physics."
   },
@@ -4043,7 +4173,7 @@ disable Dog follow`,
     parameters: [
       { name: "target", type: "string", description: "Object name, self, siblings, children, parent, #tag (who follows)" },
       { name: "object", type: "string", description: "Target object name to follow (required)" },
-      { name: "distance", type: "number", description: "Preferred distance to maintain (0\u20131, default: 0 = reach target). Object stops when within distance." },
+      { name: "distance", type: "number", description: "Preferred distance to maintain (default: 0 = reach target). Negative values mean overlap. Readable/writable at runtime as followDistance." },
       { name: "deadZone", type: "number", description: "Stop within this distance of target (0\u20131, default: 0.03). Prevents fidgeting at the target distance." },
       { name: "arrival", type: "number", description: "Begin decelerating within this distance of target (0\u20131, default: 0.12). Auto-scales to at least the follow distance." },
       { name: "delay", type: "number", description: "Milliseconds to wait before follow activates (default: 0). Gives target time to build a path." },
@@ -4077,11 +4207,11 @@ disable Enemy follow`,
   "enable zone": {
     description: "Create a physics zone",
     longDescription: "Makes an object act as a physics zone \u2014 a region where physics rules differ from the cell defaults. Objects whose center point falls inside the zone get overridden physics. Any omitted parameter uses the cell default. Smallest zone wins when multiple zones overlap. Per-object modifiers (gravityScale, windScale, dragScale) still apply as multipliers on top of zone values.",
-    example: `enable WaterRegion zone gravity 0.3 airResistance 0.8
+    example: `enable WaterRegion zone gravity 0.3 drag 0.8
 enable WindTunnel zone wind 5 windAngle 0
-enable IcePatch zone friction 0
+enable IcePatch zone drag 0
 enable Conveyor zone flowX 0.3
-enable SpacePocket zone gravity 0 airResistance 0
+enable SpacePocket zone gravity 0 drag 0
 enable WaterRegion zone gravity 0.3 affects #swimmer
 enable WindTunnel zone wind 5 affects #light #paper`,
     parameters: [
@@ -4089,8 +4219,7 @@ enable WindTunnel zone wind 5 affects #light #paper`,
       { name: "gravity", type: "number", description: "Override cell gravity (0\u201310, 0 = weightless, default 1)", optional: true },
       { name: "wind", type: "number", description: "Override cell wind magnitude (0\u201310)", optional: true },
       { name: "windAngle", type: "number", description: "Override cell wind direction in degrees (0=right, 90=down, 0\u2013360)", optional: true },
-      { name: "airResistance", type: "number", description: "Override cell drag coefficient (0\u20131, 0=vacuum, 1=thick)", optional: true },
-      { name: "friction", type: "number", description: "Override contact friction (0\u20131, 0=ice, 1=sticky)", optional: true },
+      { name: "drag", type: "number", description: "Override cell drag coefficient (0\u20131, 0=vacuum, 1=thick)", optional: true },
       { name: "flowX", type: "number", description: "Constant horizontal drift in units/sec (-2 to 2, mass-independent)", optional: true },
       { name: "flowY", type: "number", description: "Constant vertical drift in units/sec (-2 to 2, mass-independent)", optional: true },
       { name: "affects", type: "string", description: "One or more #tags \u2014 zone only affects objects with a matching tag (omit for all objects)", optional: true }
@@ -4219,6 +4348,29 @@ reveal Mask1 self.x self.y 0.05 0.02`,
     ],
     notes: "Coordinates use the mask's coordinate system (0,0 = top-left of mask, maskWidth,maskHeight = bottom-right). Radius and fade are in the same units."
   },
+  addtag: {
+    description: "Add tag to object",
+    longDescription: "Adds a tag to an object at runtime. Tags can be used to group objects and reference them with #tagName syntax in show/hide/set and other commands.",
+    example: `addTag self #enemy
+addTag Player #active
+addTag #sprites #visible`,
+    parameters: [
+      { name: "target", type: "string", description: "Object name, self, other, #tag, or all type" },
+      { name: "tag", type: "string", description: "Tag to add (#tagName)" }
+    ],
+    notes: "Adding an already-existing tag is a no-op."
+  },
+  removetag: {
+    description: "Remove tag from object",
+    longDescription: "Removes a tag from an object at runtime.",
+    example: `removeTag self #enemy
+removeTag #enemies #active`,
+    parameters: [
+      { name: "target", type: "string", description: "Object name, self, other, #tag, or all type" },
+      { name: "tag", type: "string", description: "Tag to remove (#tagName)" }
+    ],
+    notes: "Removing a tag that doesn't exist is a no-op."
+  },
   rehide: {
     description: "Rehide (restore fog) on a mask",
     longDescription: "Resets a mask or specific revealer layer back to fully opaque (hidden). Without a revealer name, resets the entire mask. With a revealer name, resets only that revealer's trail.",
@@ -4258,6 +4410,22 @@ var TRANSITIONS = {
   zoom: {
     description: "Zoom in/out",
     validFor: ["goto"]
+  },
+  typewriter: {
+    description: "Characters appear one at a time (text only)",
+    validFor: ["show", "hide"]
+  },
+  word: {
+    description: "Words appear one at a time (text only)",
+    validFor: ["show", "hide"]
+  },
+  scramble: {
+    description: "Random characters settle into final text (text only)",
+    validFor: ["show", "hide"]
+  },
+  redact: {
+    description: "Characters revealed from redacted blocks (text only)",
+    validFor: ["show", "hide"]
   }
 };
 var FUNCTIONS = {
@@ -4507,25 +4675,23 @@ if length(cluster) >= 3:
   },
   minimax: {
     description: "AI best move (minimax)",
-    longDescription: "Uses minimax algorithm with alpha-beta pruning to find the optimal move for grid-based games like Connect4, Tic-tac-toe, etc. Returns the best column index for the AI player.",
-    example: `// Connect4 AI move
-set bestCol minimax("Board", "owner", "YELLOW", "RED", 4)
-set col bestCol
-Start.dropPiece
-
-// Tic-tac-toe (3x3, win=3)
-set bestCol minimax("Grid", "mark", "O", "X", 6, 0, 3)`,
+    longDescription: "Uses minimax algorithm with alpha-beta pruning to find the optimal move for any two-player N-in-a-row grid game (tic-tac-toe, Connect4, Gomoku, etc.). Returns {x, y} of the best cell to play, or 0 if no valid move.",
+    example: `// Tic-tac-toe (3x3, win=3)
+set move minimax("Board", "mark", "O", "X", 6, 0, 3)
+if move != 0:
+  set Board.cell[move.x][move.y].mark "O"`,
     parameters: [
       { name: "grid", type: "string", description: "Grid name" },
       { name: "property", type: "string", description: "Cell data property for ownership" },
-      { name: "aiPlayer", type: "any", description: 'AI player value (e.g., "YELLOW")' },
-      { name: "humanPlayer", type: "any", description: 'Human player value (e.g., "RED")' },
+      { name: "aiPlayer", type: "any", description: 'AI player value (e.g., "O")' },
+      { name: "humanPlayer", type: "any", description: 'Human player value (e.g., "X")' },
       { name: "depth", type: "number", description: "Search depth (4-6 recommended)" },
       { name: "emptyValue", type: "any", description: "Empty cell value (default: 0)", optional: true },
-      { name: "winLength", type: "number", description: "Pieces to win (default: 4)", optional: true }
+      { name: "winLength", type: "number", description: "Pieces in a row to win (default: 4)", optional: true },
+      { name: "drop", type: "string", description: 'Pass "drop" for column-drop games like Connect-4 (pieces fall to lowest empty row)', optional: true }
     ],
-    returns: "number",
-    notes: "Higher depth = stronger but slower. Depth 4-5 is good for Connect4. Returns -1 if no valid move."
+    returns: "object",
+    notes: 'Returns {x, y} of the best move or 0 if no move available. Default: any empty cell (tic-tac-toe). With "drop": column-drop (Connect-4). Higher depth = stronger but slower.'
   },
   hash: {
     description: "Hash values to integer",
@@ -4556,6 +4722,24 @@ set seed hash(#pieces.cellX, #pieces.cellY)`,
     ],
     returns: "number"
   },
+  randomFree: {
+    description: "Random unblocked position",
+    longDescription: "Finds a random position that is not blocked by any static obstacle, within the given radius. Uses the pathfinding collision bitmap. Returns {x, y} or 0 if no free position found. Two forms: object reference (uses current position as center) or explicit coordinates (for patrol around a fixed point).",
+    example: `set target randomFree(self, 0.3)
+moveTo self target.x target.y
+
+// Patrol around fixed point
+set homeX self.x
+set homeY self.y
+set target randomFree(homeX, homeY, 0.3)`,
+    parameters: [
+      { name: "center", type: "object", description: "Center object or X coordinate" },
+      { name: "radius", type: "number", description: "Search radius (or Y coordinate if first arg is number)" },
+      { name: "radius2", type: "number", description: "Search radius (when using x, y coordinates)", optional: true }
+    ],
+    returns: "object",
+    notes: "Returns {x, y} or 0 if no free cell found. Level-aware: uses the pathfinding bitmap for the scene."
+  },
   nearby: {
     description: "Objects within radius",
     longDescription: "Returns all objects within the given radius of the reference object, sorted by distance. Optional tag filter. Each result has name, x, y, and distance properties.",
@@ -4573,15 +4757,17 @@ if length(enemies) > 0:
   nearest: {
     description: "Closest matching object",
     longDescription: "Returns the Nth closest object to a reference point, optionally filtered by tag, name, or sibling. Can measure from an object or from x/y coordinates. Returns {name, x, y, distance} or 0 if no match.",
-    example: `set target nearest(self, #coin)
+    example: `// Store result in variable, then read fields
+set target nearest(self, #coin)
 if target != 0:
   set dx target.x - self.x
+  set dy target.y - self.y
 
-// Check spawn position is clear
-set sx random
-set sy random
-if nearest(sx, sy, #enemy).distance > 0.1:
-  spawn "Enemy" {x: sx, y: sy}
+// To store per-object, copy fields to properties
+set tmp nearest(parent, #enemy)
+set self.enemyX tmp.x
+set self.enemyY tmp.y
+set self.enemyDist tmp.distance
 
 // 2nd nearest enemy
 set second nearest(self, #enemy, 2)`,
@@ -4592,7 +4778,7 @@ set second nearest(self, #enemy, 2)`,
       { name: "rank", type: "number", description: "Nth nearest (default 1, only when using x/y)", optional: true }
     ],
     returns: "object|0",
-    notes: 'Returns {name, x, y, distance} or 0. Use "sibling" selector for same-component children. Rank 2 = second nearest, etc.'
+    notes: 'Returns {name, x, y, distance} or 0. Store in a variable to read fields: `set t nearest(...)` then `t.x`, `t.y`, `t.name`, `t.distance`. Variables are global \u2014 to store per-object, copy to self properties: `set self.tx t.x`. Use "sibling" selector for same-component children. Rank 2 = second nearest, etc.'
   },
   intersects: {
     description: "Collision shape overlap",
@@ -4693,8 +4879,8 @@ var VARIABLES = {
   },
   other: {
     description: "Other object in collision/overlap",
-    longDescription: "References the other object involved in a collision or overlap event. Available in onCollide, onOverlap, and onOverlapEnd handlers. Access properties with other.property (e.g., other.name, other.x, other.visible). Can also read custom object variables with other.varName. Use with hasTag to check tags: `if other hasTag #enemy`.",
-    example: "if other hasTag #missile:\n  set health health - 1",
+    longDescription: "References the other object involved in a collision or overlap event. Available in onCollide, onOverlap, and onOverlapEnd handlers. Access properties with other.property (e.g., other.name, other.x, other.visible). Can also read custom object variables with other.varName. Use `is` to check tags: `if other is #enemy`.",
+    example: "if other is #missile:\n  set health health - 1",
     type: "object"
   },
   newGame: {
@@ -4724,7 +4910,7 @@ set display.content Enemy.health
 
 // In onCollide handler
 onCollide:
-  if other hasTag #bullet:
+  if other is #bullet:
     set self.health self.health - other.damage`,
     notes: "Object variables are session-scoped (cleared on reset). They are distinct from session/game/local variables which are global."
   },
@@ -4863,11 +5049,12 @@ var SCRIPTABLE_PROPERTIES = {
   glowColor: { description: "Glow color", type: "color", example: 'set Box.glowColor "#ff0000"' },
   glowIntensity: { description: "Glow intensity (1-10, higher = more solid)", type: "number", example: "set Box.glowIntensity 5" },
   trail: { description: "Enable motion trail", type: "boolean", example: "set Player.trail true" },
-  trailLength: { description: "Trail length in frames (default 20)", type: "number", example: "set Player.trailLength 30" },
+  trailLength: { description: "Trail distance in world units (default 0.3)", type: "number", example: "set Player.trailLength 0.5" },
   trailOpacity: { description: "Trail starting opacity (default 0.3)", type: "number", example: "set Player.trailOpacity 0.5" },
   trailColor: { description: "Trail color (default: object fill)", type: "color", example: 'set Player.trailColor "#00ffff"' },
-  trailScale: { description: "Trail point scale (default 0.8)", type: "number", example: "set Player.trailScale 0.6" },
-  trailSpacing: { description: "Min distance between trail points (default 0)", type: "number", example: "set Player.trailSpacing 0.02" },
+  trailScale: { description: "Trail taper ratio \u2014 tail/head width (default 0.3, 0=pointed, 1=uniform)", type: "number", example: "set Player.trailScale 0.5" },
+  trailWidth: { description: "Trail width multiplier of min(width, height) (default: 1)", type: "number", example: "set Player.trailWidth 0.5" },
+  trailFade: { description: "Trail edge blur in pixels (0=off)", type: "number", example: "set Player.trailFade 5" },
   zIndex: { description: "Layer order", type: "number", example: "set Box.zIndex 10" },
   rotation: { description: "Rotation angle (0-360)", type: "number", example: "set Box.rotation 45" },
   flipX: { description: "Horizontal flip", type: "boolean", example: "set Box.flipX true" },
@@ -4880,11 +5067,12 @@ var SCRIPTABLE_PROPERTIES = {
   cellY: { description: "Grid row position", type: "number", example: "if Player.cellY == 2:", readonly: true },
   moving: { description: "Is object moving", type: "boolean", example: "if Player.moving:", readonly: true },
   direction: { description: "Movement direction", type: "string", example: 'if Player.direction == "down":', readonly: true, notes: '"up", "down", "left", "right", "none"' },
-  velocityX: { description: "Horizontal velocity", type: "number", example: "if Player.velocityX > 0:", readonly: true },
-  velocityY: { description: "Vertical velocity", type: "number", example: "if Player.velocityY > 0:", readonly: true },
+  velocityX: { description: "Horizontal velocity", type: "number", example: "set Ball.velocityX 0.3" },
+  velocityY: { description: "Vertical velocity", type: "number", example: "set Ball.velocityY -0.5" },
   angularVelocity: { description: "Rotation speed (deg/sec)", type: "number", example: "if Box.angularVelocity > 10:", readonly: true, notes: "Only available on rotatable objects" },
   moveAngle: { description: "Movement angle (degrees)", type: "number", example: "set self.rotation moveAngle", readonly: true, notes: "0=right, 90=down, 180=left, 270=up, -1=not moving" },
   moveSpeed: { description: "Movement speed magnitude", type: "number", example: "if Player.moveSpeed > 0.5:", readonly: true },
+  followDistance: { description: "Follow/avoid distance (read/write at runtime, negative = overlap)", type: "number", example: "set self.followDistance 0.1", notes: "Only available when follow/avoid is enabled" },
   spriteFrame: { description: "Current sprite sheet frame (0-based)", type: "number", example: "set self.spriteFrame 3", notes: "Only affects objects with sprite sheet image fills (spriteColumns/spriteRows > 1)" },
   tags: { description: "Object tags (array of strings)", type: "array", example: 'set self.tags ["tile", "clickable"]' },
   perspectiveX: { description: "Perspective vanishing point X (0-2)", type: "number", example: "set Box.perspectiveX 0.5" },
@@ -4899,11 +5087,18 @@ var SCRIPTABLE_PROPERTIES = {
   revealerFade: { description: "Reveal fade override (mask-relative units)", type: "number", example: "set Player.revealerFade 0.03" },
   revealerNoise: { description: "Reveal noise override (0=smooth, 1=max)", type: "number", example: "set Player.revealerNoise 0.4" },
   revealerShape: { description: "Reveal shape: circle or rect", type: "string", example: "set Player.revealerShape rect" },
+  revealTags: { description: "Only reveal masks with matching tags (empty = all masks)", type: "array", example: 'set Player.revealTags ["darkness"]' },
   revealerRehide: { description: "Enable auto-rehide (fog returns when revealer moves away)", type: "boolean", example: "set Player.revealerRehide true" },
   revealerRehideSpeed: { description: "Rehide speed (0=instant, higher=slower)", type: "number", example: "set Player.revealerRehideSpeed 2" },
   revealerRehideGrowth: { description: "Rehide growth factor", type: "number", example: "set Player.revealerRehideGrowth 1" },
   revealerRehideRate: { description: "Rehide speed multiplier (1=normal, 2=twice as fast)", type: "number", example: "set Player.revealerRehideRate 2" },
   revealerRehideStopThreshold: { description: "Pause rehide when stopped briefly (seconds, 0=disabled)", type: "number", example: "set Player.revealerRehideStopThreshold 0.5" },
+  // Key remapping (runtime input key overrides)
+  "keys.up": { description: 'Remap up/forward key ("none" to disable)', type: "string", example: 'set self.keys.up "w"' },
+  "keys.down": { description: 'Remap down/backward key ("none" to disable)', type: "string", example: 'set self.keys.down "none"' },
+  "keys.left": { description: 'Remap left key ("none" to disable)', type: "string", example: 'set self.keys.left "a"' },
+  "keys.right": { description: 'Remap right key ("none" to disable)', type: "string", example: 'set self.keys.right "d"' },
+  "keys.jump": { description: 'Remap jump key ("none" to disable)', type: "string", example: 'set self.keys.jump "w"' },
   // Peg constraint properties (when primeType === 'peg')
   pegType: { description: "Constraint type: pin or weld", type: "string", example: 'set Peg1.pegType "weld"' },
   pegDamping: { description: "Swing friction (0 = swings forever, 1 = stops quickly)", type: "number", example: "set Peg1.pegDamping 0.5" },
@@ -4947,16 +5142,33 @@ var SCRIPTABLE_PROPERTIES = {
 };
 var CELL_SCRIPTABLE_PROPERTIES = {
   backgroundColor: { description: "Cell background color", type: "color", example: 'set Cell.backgroundColor "#ff0000"' },
+  "gradient.color0": { description: "First gradient stop color", type: "color", example: 'set Cell.gradient.color0 "#87CEEB"' },
+  "gradient.color1": { description: "Second gradient stop color", type: "color", example: 'set Cell.gradient.color1 "#0a0a2e"' },
+  "gradient.angle": { description: "Gradient angle in degrees", type: "number", example: "set Cell.gradient.angle 180" },
   backgroundPattern: { description: "Cell background pattern", type: "string", example: 'set Cell.backgroundPattern "grid"' },
   patternColor: { description: "Pattern overlay color", type: "color", example: 'set Cell.patternColor "rgba(0,0,0,0.2)"' },
   patternScale: { description: "Pattern scale (0.5-2)", type: "number", example: "set Cell.patternScale 1.5" },
   gravity: { description: "Vertical force for dynamics (0 = none)", type: "number", example: "set Cell.gravity 0.5", notes: "Applies to movable objects" },
   wind: { description: "Wind magnitude (0 = none)", type: "number", example: "set Cell.wind 0.5", notes: "Direction set by windAngle" },
   windAngle: { description: "Wind direction in degrees (0 = right, 90 = down, 180 = left, 270 = up)", type: "number", example: "set Cell.windAngle 90" },
-  airResistance: { description: "Drag coefficient (0 = vacuum, 0.1 = air, 1 = water-like)", type: "number", example: "set Cell.airResistance 0.1", notes: "Creates natural terminal velocity: v_terminal \u2248 gravity / airResistance" },
+  drag: { description: "Drag coefficient (0 = vacuum, 0.1 = air, 1 = water-like)", type: "number", example: "set Cell.drag 0.1", notes: "Creates natural terminal velocity: v_terminal \u2248 gravity / drag" },
   timeScale: { description: "Time scale for all objects (0=paused, 0.5=half speed, 1=normal, 2=double). Per-object timeScale overrides this", type: "number", example: "set Cell.timeScale 0" },
   width: { description: "Canvas width in world units (read-only)", type: "number", example: "Cell.width" },
   height: { description: "Canvas height in world units (read-only)", type: "number", example: "Cell.height" }
+};
+var CAMERA_SCRIPTABLE_PROPERTIES = {
+  x: { description: "Camera center X in world coordinates", type: "number", example: "set Camera.x 1.5" },
+  y: { description: "Camera center Y in world coordinates", type: "number", example: "set Camera.y 0.5" },
+  zoom: { description: "Camera zoom level (1 = default, 2 = 2x closer)", type: "number", example: "set Camera.zoom 2" },
+  aspectRatio: { description: "Camera viewport aspect ratio (width/height). Set to Screen.aspectRatio to fill screen", type: "number", example: "set Camera.aspectRatio 1.78" },
+  viewportWidth: { description: "Visible width in world units (read-only)", type: "number", example: "Camera.viewportWidth" },
+  viewportHeight: { description: "Visible height in world units (read-only)", type: "number", example: "Camera.viewportHeight" },
+  subjectTransition: { description: "Duration in ms for smooth pan when switching subjects (0 = snap)", type: "number", example: "set Camera.subjectTransition 500" }
+};
+var SCREEN_SCRIPTABLE_PROPERTIES = {
+  aspectRatio: { description: "Actual device/window aspect ratio (width/height)", type: "number", example: "Screen.aspectRatio" },
+  width: { description: "Window width in pixels (read-only)", type: "number", example: "Screen.width" },
+  height: { description: "Window height in pixels (read-only)", type: "number", example: "Screen.height" }
 };
 var FILL_LAYER_PROPERTIES = [
   // Color layer
@@ -5354,24 +5566,19 @@ function validateStatements(statements, objectSet, cellSet, warnings, loopVariab
         validateStatements(stmt.body, objectSet, cellSet, warnings, bodyLoopVars);
         break;
       }
-      case "next":
-      case "prev": {
-        if (stmt.else) {
-          validateStatements(stmt.else, objectSet, cellSet, warnings, loopVariables);
-        }
-        break;
-      }
     }
   }
 }
 export {
   ACTIONS,
+  CAMERA_SCRIPTABLE_PROPERTIES,
   CELL_SCRIPTABLE_PROPERTIES,
   CONCEPTS,
   EVENTS,
   FILL_LAYER_PROPERTIES,
   FUNCTIONS,
   OPERATORS2 as OPERATORS,
+  SCREEN_SCRIPTABLE_PROPERTIES,
   SCRIPTABLE_PROPERTIES,
   TRANSITIONS,
   VARIABLES,

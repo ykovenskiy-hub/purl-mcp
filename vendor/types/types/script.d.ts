@@ -63,7 +63,7 @@ export interface AggregateExpr {
 export interface SourceLocation {
     line: number;
 }
-export type Statement = GotoStatement | ShowStatement | HideStatement | WaitStatement | SyncStatement | SetStatement | SetPropertyStatement | SetStateStatement | EnableStatement | DisableStatement | SetGridCellDataStatement | ResetStatement | ResetScriptStatement | RestartStatement | IfStatement | NextStatement | PrevStatement | WrapStatement | ActionCallStatement | ShoutStatement | FirstStatement | ForeachStatement | RepeatStatement | LogStatement | AnimateStatement | StopAnimationStatement | AnimateGroupStatement | StopAnimateGroupStatement | CellTransitionStatement | ClearGridStatement | PostStatement | FetchStatement | SpawnStatement | DestroyStatement | ReturnStatement | BreakStatement | CopyStatement | PlayStatement | PauseStatement | JumpStatement | ImpulseStatement | ScreenshakeStatement | StopScreenshakeStatement | RevealStatement | RehideStatement | TransportStatement | MoveToStatement | SaveStatement | LoadStatement | DeleteSaveStatement | EndGameStatement | PressStatement | ReleaseStatement;
+export type Statement = GotoStatement | ShowStatement | HideStatement | WaitStatement | SyncStatement | SetStatement | SetPropertyStatement | SetStateStatement | EnableStatement | DisableStatement | SetGridCellDataStatement | ResetStatement | ResetScriptStatement | RestartStatement | IfStatement | ActionCallStatement | ShoutStatement | FirstStatement | ForeachStatement | RepeatStatement | LogStatement | OpenUrlStatement | AnimateStatement | StopAnimationStatement | AnimateGroupStatement | StopAnimateGroupStatement | CellTransitionStatement | ClearGridStatement | PostStatement | FetchStatement | SpawnStatement | DestroyStatement | ReturnStatement | BreakStatement | CopyStatement | PlayStatement | PauseStatement | JumpStatement | ImpulseStatement | ScreenshakeStatement | StopScreenshakeStatement | RevealStatement | RehideStatement | TransportStatement | MoveToStatement | SaveStatement | LoadStatement | DeleteSaveStatement | EndGameStatement | PressStatement | ReleaseStatement | AddTagStatement | RemoveTagStatement;
 export type GotoTransition = 'fade' | 'slide-left' | 'slide-right' | 'slide-up' | 'slide-down' | 'zoom';
 export type GotoDirection = 'north' | 'east' | 'south' | 'west';
 export type VisibilityTransition = 'fade' | 'slide-up' | 'slide-down' | 'scale';
@@ -121,6 +121,10 @@ export interface SetPropertyStatement {
     value: Expression;
     duration?: Expression;
     easing?: string;
+    zOrder?: {
+        relation: 'above' | 'below';
+        ref: string;
+    };
     loc?: SourceLocation;
 }
 export interface SetStateStatement {
@@ -134,10 +138,10 @@ export interface SetStateStatement {
     rotationDirection?: 'cw' | 'ccw';
     loc?: SourceLocation;
 }
-export type CapabilityType = 'movable' | 'jumpable' | 'draggable' | 'keyboard' | 'click' | 'gamepad' | 'script' | 'subject' | 'pageable' | 'follow' | 'zone' | 'blocking' | 'sensor' | 'phase';
+export type CapabilityType = 'movable' | 'jumpable' | 'draggable' | 'keyboard' | 'click' | 'gamepad' | 'script' | 'subject' | 'follow' | 'zone' | 'blocking' | 'sensor' | 'phase';
 export interface EnableStatement {
     type: 'enable';
-    target: string;
+    target: Expression;
     capability: CapabilityType;
     speed?: Expression;
     acceleration?: Expression;
@@ -146,8 +150,14 @@ export interface EnableStatement {
     axis?: 'x' | 'y' | 'forward';
     steerRate?: Expression;
     pathId?: Expression;
+    pathReverse?: boolean;
+    pathContactSpan?: Expression;
+    faceTravel?: boolean;
+    turnaround?: boolean;
     faceMovement?: boolean;
     traction?: boolean;
+    stable?: boolean;
+    dodge?: Expression;
     solid?: boolean;
     snapToGrid?: string;
     height?: Expression;
@@ -157,20 +167,19 @@ export interface EnableStatement {
     collision?: boolean;
     discrete?: boolean;
     occupy?: boolean;
-    items?: string[];
-    useStructureOrder?: boolean;
-    followTarget?: string;
+    followTarget?: Expression;
     followDistance?: Expression;
     followAvoid?: boolean;
     followPathfinding?: boolean;
     followDeadZone?: Expression;
     followArrival?: Expression;
     followDelay?: Expression;
+    followCenter?: boolean;
+    followRigid?: boolean;
     zoneGravity?: Expression;
     zoneWind?: Expression;
     zoneWindAngle?: Expression;
-    zoneAirResistance?: Expression;
-    zoneFriction?: Expression;
+    zoneDrag?: Expression;
     zoneFlowX?: Expression;
     zoneFlowY?: Expression;
     zoneAffectTags?: string[];
@@ -179,7 +188,7 @@ export interface EnableStatement {
 }
 export interface DisableStatement {
     type: 'disable';
-    target: string;
+    target: Expression;
     capability: CapabilityType;
     loc?: SourceLocation;
 }
@@ -190,6 +199,8 @@ export interface SetGridCellDataStatement {
     y: Expression;
     property: string;
     value: Expression;
+    duration?: Expression;
+    easing?: string;
     loc?: SourceLocation;
 }
 export interface ClearGridStatement {
@@ -199,28 +210,6 @@ export interface ClearGridStatement {
     y?: Expression;
     loc?: SourceLocation;
 }
-export interface NextStatement {
-    type: 'next';
-    target: string;
-    transition?: TransitionConfig;
-    wrap?: boolean;
-    else?: Statement[];
-    loc?: SourceLocation;
-}
-export interface PrevStatement {
-    type: 'prev';
-    target: string;
-    transition?: TransitionConfig;
-    wrap?: boolean;
-    else?: Statement[];
-    loc?: SourceLocation;
-}
-export interface WrapStatement {
-    type: 'wrap';
-    target: string;
-    transition?: TransitionConfig;
-    loc?: SourceLocation;
-}
 export interface ResetStatement {
     type: 'reset';
     scope: 'visits' | 'session' | 'game' | 'all' | string;
@@ -228,6 +217,7 @@ export interface ResetStatement {
 }
 export interface RestartStatement {
     type: 'restart';
+    scope?: 'cell';
     loc?: SourceLocation;
 }
 export interface EndGameStatement {
@@ -256,6 +246,7 @@ export interface ShoutStatement {
     message: string;
     target?: string;
     params?: Record<string, Expression>;
+    global?: boolean;
     loc?: SourceLocation;
 }
 export interface PressStatement {
@@ -268,6 +259,18 @@ export interface ReleaseStatement {
     type: 'release';
     key: string;
     target?: string;
+    loc?: SourceLocation;
+}
+export interface AddTagStatement {
+    type: 'add-tag';
+    target: string;
+    tag: string;
+    loc?: SourceLocation;
+}
+export interface RemoveTagStatement {
+    type: 'remove-tag';
+    target: string;
+    tag: string;
     loc?: SourceLocation;
 }
 export interface PostStatement {
@@ -285,6 +288,7 @@ export interface FetchStatement {
 export interface SpawnStatement {
     type: 'spawn';
     templateName: string;
+    templateNameExpr?: Expression;
     anchorName?: string;
     params?: Record<string, Expression>;
     loc?: SourceLocation;
@@ -312,11 +316,13 @@ export interface PlayStatement {
     type: 'play';
     target: string;
     loop?: boolean;
+    fadeIn?: number;
     loc?: SourceLocation;
 }
 export interface PauseStatement {
     type: 'pause';
     target: string;
+    fadeOut?: number;
     loc?: SourceLocation;
 }
 export interface JumpStatement {
@@ -361,6 +367,12 @@ export interface LogStatement {
     expressions: Expression[];
     loc?: SourceLocation;
 }
+export interface OpenUrlStatement {
+    type: 'openUrl';
+    url: Expression;
+    newTab: boolean;
+    loc?: SourceLocation;
+}
 export type AnimationType = 'shake' | 'vibrate' | 'pulse' | 'squeeze' | 'bounce' | 'spin' | 'glow';
 export interface AnimateStatement {
     type: 'animate';
@@ -383,6 +395,7 @@ export interface StopAnimationStatement {
     type: 'stop-animation';
     target: string;
     animation?: AnimationType;
+    fadeOut?: number;
     loc?: SourceLocation;
 }
 export interface ScreenshakeStatement {
@@ -427,6 +440,7 @@ export interface MoveToStatement {
     x: Expression;
     y: Expression;
     destination?: string;
+    destinationExpr?: Expression;
     loc?: SourceLocation;
 }
 export interface SaveStatement {
@@ -496,10 +510,6 @@ export interface ScopedVariables {
     game: Record<string, ScriptValue>;
     local: Record<string, ScriptValue>;
 }
-export interface PageableState {
-    items: string[];
-    index: number;
-}
 export interface CameraState {
     offsetX: number;
     offsetY: number;
@@ -514,8 +524,8 @@ export interface GameState {
     visitCounts: Record<string, number>;
     propertyOverrides: Record<string, ScriptValue>;
     clickIndices: Record<string, number>;
-    pageables: Record<string, PageableState>;
     gridCellData: Record<string, Record<string, ScriptValue>>;
+    objectVariables?: Record<string, ScriptValue>;
     camera: CameraState;
 }
 export declare const INITIAL_GAME_STATE: GameState;
@@ -524,4 +534,4 @@ export declare function parseVariableKey(fullKey: string): {
     key: string;
 };
 export declare const GOTO_TRANSITIONS: readonly ["fade", "slide-left", "slide-right", "slide-up", "slide-down", "zoom"];
-export declare const VISIBILITY_TRANSITIONS: readonly ["fade", "slide-up", "slide-down", "scale"];
+export declare const VISIBILITY_TRANSITIONS: readonly ["fade", "slide-up", "slide-down", "scale", "typewriter", "word", "scramble", "redact"];

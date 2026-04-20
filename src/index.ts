@@ -12,6 +12,7 @@
  *   validate_script, dsl_reference
  */
 
+import { execSync } from 'node:child_process'
 import { Server } from '@modelcontextprotocol/sdk/server/index.js'
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
 import {
@@ -30,10 +31,42 @@ import {
   CONCEPTS,
   SCRIPTABLE_PROPERTIES,
   CELL_SCRIPTABLE_PROPERTIES,
+  CAMERA_SCRIPTABLE_PROPERTIES,
+  SCREEN_SCRIPTABLE_PROPERTIES,
   FILL_LAYER_PROPERTIES,
   generateSyntaxReference,
 } from '../vendor/purl-parser.mjs'
 import { createWsBridge } from './wsServer.js'
+
+// Kill any other purl-mcp-server processes on this machine. Each Claude Code
+// session spawns its own MCP server via stdio, but the WS bridge keeps the
+// event loop alive after Claude exits, leaving zombie servers that hold port
+// 3001 hostage from the next session. We enforce exactly one instance.
+function killZombieSiblings(): void {
+  const myPid = process.pid
+  const myScript = process.argv[1]
+  if (!myScript) return
+  try {
+    const output = execSync('ps -A -o pid=,command=', { encoding: 'utf8' })
+    for (const line of output.split('\n')) {
+      const match = line.trim().match(/^(\d+)\s+(.*)$/)
+      if (!match) continue
+      const pid = Number(match[1])
+      if (pid === myPid) continue
+      if (!match[2].includes(myScript)) continue
+      try {
+        process.kill(pid, 'SIGKILL')
+        console.error(`[Purl MCP] Killed zombie sibling PID ${pid}`)
+      } catch {
+        // already dead
+      }
+    }
+  } catch (err) {
+    console.error(`[Purl MCP] Failed to scan for siblings: ${err instanceof Error ? err.message : String(err)}`)
+  }
+}
+
+killZombieSiblings()
 
 // WebSocket bridge to browser
 const WS_PORT = Number(process.env.PURL_WS_PORT) || 3001
@@ -44,8 +77,15 @@ const BROWSER_TOOLS = new Set([
   'get_project', 'list_objects', 'get_object', 'get_script', 'get_states',
   'set_property', 'update_script', 'add_object', 'remove_object', 'update_cell',
   'clone_object', 'bulk_set_property',
-  'begin_prompt', 'end_prompt',
 ])
+
+// Shared schema for the `prompt` parameter required on every write tool. The
+// editor keys its undo-history batching on this string, so the LLM must pass
+// the user's message verbatim — not a paraphrase.
+const PROMPT_PARAM = {
+  type: 'string' as const,
+  description: "THE USER'S EXACT PROMPT — verbatim, word-for-word, as typed. Do not summarize, paraphrase, translate, or shorten. Copy the user's message into this field exactly. Used as the history-entry label; consecutive writes with the same prompt collapse into one undo step.",
+}
 
 // Tool definitions
 const tools: Tool[] = [
@@ -97,6 +137,10 @@ const tools: Tool[] = [
         target: {
           type: 'string',
           description: 'Object name (e.g., "Player") or "cell:CellName" for cell scripts',
+        },
+        cellName: {
+          type: 'string',
+          description: 'Optional: restrict object lookup to this cell. Required when the same object name exists in multiple cells (e.g., after duplicating a cell); otherwise the server errors with a list of candidate cells.',
         },
       },
       required: ['target'],
@@ -153,8 +197,13 @@ const tools: Tool[] = [
           type: 'string',
           description: 'Name of the script slot (default: "Main")',
         },
+        cellName: {
+          type: 'string',
+          description: 'Optional: restrict object lookup to this cell. Required when the same object name exists in multiple cells (e.g., after duplicating a cell); otherwise the server errors with a list of candidate cells.',
+        },
+        prompt: PROMPT_PARAM,
       },
-      required: ['target', 'code'],
+      required: ['target', 'code', 'prompt'],
     },
   },
   {
@@ -175,8 +224,9 @@ const tools: Tool[] = [
           type: 'object',
           description: 'Key-value pairs to set on the object (e.g., {"x": 0.3, "y": 0.5, "visible": false})',
         },
+        prompt: PROMPT_PARAM,
       },
-      required: ['objectName', 'properties'],
+      required: ['objectName', 'properties', 'prompt'],
     },
   },
   {
@@ -202,8 +252,9 @@ const tools: Tool[] = [
           type: 'object',
           description: 'Optional properties to set (x, y, width, height, content, tags, etc.)',
         },
+        prompt: PROMPT_PARAM,
       },
-      required: ['cellName', 'name', 'type'],
+      required: ['cellName', 'name', 'type', 'prompt'],
     },
   },
   {
@@ -220,8 +271,9 @@ const tools: Tool[] = [
           type: 'string',
           description: 'Optional: cell to search in (by label)',
         },
+        prompt: PROMPT_PARAM,
       },
-      required: ['objectName'],
+      required: ['objectName', 'prompt'],
     },
   },
   {
@@ -238,8 +290,9 @@ const tools: Tool[] = [
           type: 'object',
           description: 'Key-value pairs to set on the cell (e.g., {"gravity": 9.8, "wind": 2, "windAngle": 180})',
         },
+        prompt: PROMPT_PARAM,
       },
-      required: ['cellName', 'properties'],
+      required: ['cellName', 'properties', 'prompt'],
     },
   },
   {
@@ -282,8 +335,9 @@ const tools: Tool[] = [
           type: 'string',
           description: 'Optional: cell to place the clone in (defaults to same cell as source)',
         },
+        prompt: PROMPT_PARAM,
       },
-      required: ['sourceName', 'newName'],
+      required: ['sourceName', 'newName', 'prompt'],
     },
   },
   {
@@ -314,30 +368,9 @@ const tools: Tool[] = [
           type: 'string',
           description: 'Optional: cell to search in (by label). Applies to all entries.',
         },
+        prompt: PROMPT_PARAM,
       },
-      required: ['updates'],
-    },
-  },
-  {
-    name: 'begin_prompt',
-    description: 'Declare the start of a user prompt. Call this BEFORE any project-modifying tools in a response that will change the project, passing the user\'s exact request as `prompt`. All subsequent write tool calls (until `end_prompt`) are grouped into ONE undo entry in the editor history, labeled with this prompt text. Essential so per-prompt edits collapse to one undo step instead of dozens of per-tool entries.',
-    inputSchema: {
-      type: 'object',
-      properties: {
-        prompt: {
-          type: 'string',
-          description: 'The user\'s exact request text — shown to the user in the history dialog on hover.',
-        },
-      },
-      required: ['prompt'],
-    },
-  },
-  {
-    name: 'end_prompt',
-    description: 'Close the current prompt batch. Call once at the end of a response that used `begin_prompt`. Subsequent edits will be separate undo entries until the next `begin_prompt`.',
-    inputSchema: {
-      type: 'object',
-      properties: {},
+      required: ['updates', 'prompt'],
     },
   },
 ]
@@ -420,6 +453,8 @@ function handleDslReference(args: { category: string; name?: string }): string {
       return JSON.stringify({
         object: SCRIPTABLE_PROPERTIES,
         cell: CELL_SCRIPTABLE_PROPERTIES,
+        camera: CAMERA_SCRIPTABLE_PROPERTIES,
+        screen: SCREEN_SCRIPTABLE_PROPERTIES,
         fillLayers: FILL_LAYER_PROPERTIES,
       }, null, 2)
     case 'concepts':
@@ -472,13 +507,10 @@ are not limited to): x, y, width, height, rotation, flipX, flipY, visible, opaci
 zIndex, scale, state, pivot, fillColor, strokeColor, strokeWidth, content, velocityX, \
 velocityY, movable. When in doubt, use a disambiguating name (e.g., \`self.phaseStep\` \
 instead of \`self.phase\`, \`self.mirrored\` instead of \`self.pivot\`).
-- **Wrap every user prompt in begin_prompt / end_prompt** so the editor records \
-all your edits as ONE undo step labeled with the user's prompt. At the very start \
-of a response that will modify the project, call \`begin_prompt\` with \
-\`{prompt: "<the user's exact request>"}\`. At the end of the response, call \
-\`end_prompt\`. The user's undo history will show one entry per prompt with that \
-text on hover, instead of dozens of per-tool entries that push earlier state out of \
-the 50-entry history cap.
+- **Every write tool takes a required \`prompt\` parameter** — pass the user's \
+exact message verbatim (not a summary or paraphrase). The editor uses it to label \
+and coalesce edits in the undo history: consecutive writes sharing the same \`prompt\` \
+collapse into one undo step, with the prompt text shown in the hover tooltip.
 - The user can see and undo your changes in the editor's undo history.
 `
 
@@ -517,6 +549,19 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
     }
   }
 })
+
+// When Claude Code exits, our stdin closes. Without this handler the WS
+// server keeps the event loop alive and we become a zombie holding port 3001.
+function shutdown(reason: string): void {
+  console.error(`[Purl MCP] Shutting down: ${reason}`)
+  bridge.close()
+  process.exit(0)
+}
+
+process.stdin.on('end', () => shutdown('stdin ended'))
+process.stdin.on('close', () => shutdown('stdin closed'))
+process.on('SIGTERM', () => shutdown('SIGTERM'))
+process.on('SIGINT', () => shutdown('SIGINT'))
 
 async function main() {
   const transport = new StdioServerTransport()

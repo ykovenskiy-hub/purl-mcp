@@ -12,6 +12,7 @@ export declare class CameraController {
     private config;
     private state;
     private initialized;
+    private snapNextCenter;
     private subjectIds;
     private onUpdate;
     private onZoomChange;

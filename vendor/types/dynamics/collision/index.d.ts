@@ -5,4 +5,4 @@
  * and path tracing to prevent tunneling.
  */
 export { SpatialGrid, type AABB } from './spatialGrid';
-export { getSweptAABB, queryAlongPath, findCollisionPoint, getAABBAtPosition, getRotatedAABB, } from './pathTrace';
+export { getSweptAABB, queryAlongPath, findCollisionPoint, getAABBAtPosition, getRotatedAABB, lineIntersectsAABB, segmentIntersection, } from './pathTrace';

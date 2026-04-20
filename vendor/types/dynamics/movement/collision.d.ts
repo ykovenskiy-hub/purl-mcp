@@ -27,6 +27,9 @@ export interface DetectCollisionOptions {
     /** Previous position for path-based collision (tunneling prevention) */
     prevX?: number;
     prevY?: number;
+    /** Extra rotation delta for compound body children (parent's incremental rotation).
+     *  Added to getRotationDelta result so SAT tests the shape at the correct orientation. */
+    extraRotDelta?: number;
 }
 /**
  * Detect collision between mover at new position and blocking objects.
@@ -35,12 +38,26 @@ export interface DetectCollisionOptions {
  * When spatialGrid and prevX/prevY are provided, uses path-based collision
  * detection to prevent tunneling through thin obstacles.
  */
+/**
+ * Detect ALL collisions between mover at new position and blocking objects.
+ * Returns every overlapping blocker, not just the first.
+ */
+export declare function detectAllCollisions(mover: DynamicsObject, newX: number, newY: number, allObjects: DynamicsObject[], options?: DetectCollisionOptions): CollisionResult[];
+/**
+ * Detect first collision between mover at new position and blocking objects.
+ * Wrapper around detectAllCollisions for backward compatibility.
+ */
 export declare function detectCollision(mover: DynamicsObject, newX: number, newY: number, allObjects: DynamicsObject[], options?: DetectCollisionOptions): CollisionResult | null;
 /**
- * Detect collision for a compound body (shapeless parent mover).
- * Tests each child at the shifted + rotated position. The parent's movement
- * and rotation deltas are applied to each child, and the deepest collision wins.
+ * Detect ALL collisions for a compound body (shapeless parent mover).
+ * Tests each child at the shifted + rotated position against all blockers.
+ * Returns all collisions found, deduplicated by blocker (deepest per blocker).
  * Uses the parent's phase/tags for filtering.
+ */
+export declare function detectAllCompoundCollisions(parent: DynamicsObject, newX: number, newY: number, allObjects: DynamicsObject[], options?: DetectCollisionOptions): CollisionResult[];
+/**
+ * Detect deepest collision for a compound body.
+ * Wrapper around detectAllCompoundCollisions for backward compatibility.
  */
 export declare function detectCompoundCollision(parent: DynamicsObject, newX: number, newY: number, allObjects: DynamicsObject[], options?: DetectCollisionOptions): CollisionResult | null;
 /**
@@ -66,4 +83,4 @@ export interface ResolvedCollision {
  * Parallel velocity is dampened by friction.
  * When blocker is movable, computes momentum transfer impulse.
  */
-export declare function resolveCollision(mover: DynamicsObject, newX: number, newY: number, velocityX: number, velocityY: number, collision: CollisionResult, deltaTime?: number, zoneFriction?: number): ResolvedCollision;
+export declare function resolveCollision(mover: DynamicsObject, newX: number, newY: number, velocityX: number, velocityY: number, collision: CollisionResult, deltaTime?: number, allObjects?: DynamicsObject[]): ResolvedCollision;

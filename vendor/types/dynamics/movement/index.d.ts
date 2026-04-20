@@ -6,8 +6,9 @@
  */
 import type { DynamicsObject, GridConfig, StateUpdate } from '../types';
 import type { SpatialGrid } from '../collision';
-export { clearRuntimeStates, getCellX, getCellY, getAnimationOpacity, getAnimationScale, isAnimating, isObjectMoving, isAnyObjectMoving, getMovementState, setCellPositionDirect, drainPendingImpulses, drainCollisionEvents, detectMovementEvents, drainMovementEvents, addJumpEvent, wakeObject, getDebugBreadcrumbs, } from './state';
+export { clearRuntimeStates, getCellX, getCellY, getAnimationOpacity, getAnimationScale, isAnimating, isObjectMoving, isAnyObjectMoving, getMovementState, setCellPositionDirect, drainPendingImpulses, drainCollisionEvents, detectMovementEvents, drainMovementEvents, addJumpEvent, wakeObject, getDebugBreadcrumbs, getDebugClickTargets, } from './state';
 export type { MovementEvent } from './state';
+export { getDebugMoveToPaths } from './pathfinding';
 export { getCellPosition, getCellFromPosition, getCellSpan, getMultiCellPosition, getAnchorCellFromPosition, getOccupiedCells, findBlockerAtCells, findOccupantAtCells, } from './helpers';
 export { processStaticSnap } from './static';
 /**
@@ -17,7 +18,6 @@ export { processStaticSnap } from './static';
 export declare function processMovement(obj: DynamicsObject, grid: GridConfig | null, deltaTime: number, allObjects?: DynamicsObject[], spatialGrid?: SpatialGrid, options?: {
     skipAngular?: boolean;
     skipCollision?: boolean;
-    zoneFriction?: number;
     gravityOverride?: {
         gx: number;
         gy: number;

@@ -42,6 +42,19 @@ export declare function queryAlongPath(grid: SpatialGrid, startX: number, startY
  */
 export declare function findCollisionPoint(checkCollision: (x: number, y: number) => boolean, startX: number, startY: number, endX: number, endY: number, iterations?: number): number;
 /**
+ * Line-segment vs line-segment intersection.
+ * Returns the intersection point, or null if segments don't cross.
+ */
+export declare function segmentIntersection(ax: number, ay: number, bx: number, by: number, cx: number, cy: number, dx: number, dy: number): {
+    x: number;
+    y: number;
+} | null;
+/**
+ * Line-segment vs AABB intersection test (slab method).
+ * Returns true if the segment from (x0,y0) to (x1,y1) intersects the AABB.
+ */
+export declare function lineIntersectsAABB(x0: number, y0: number, x1: number, y1: number, aabb: AABB): boolean;
+/**
  * Calculate AABB for an object at a given position
  */
 export declare function getAABBAtPosition(x: number, y: number, width: number, height: number, pivot?: {

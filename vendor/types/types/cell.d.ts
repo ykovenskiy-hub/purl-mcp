@@ -47,8 +47,9 @@ export interface Cell {
     gravity?: number;
     wind?: number;
     windAngle?: number;
-    airResistance?: number;
+    drag?: number;
     timeScale?: number;
+    levelScaleStep?: number;
     gravityCenter?: {
         x: number;
         y: number;
@@ -110,7 +111,7 @@ export interface LegacyTextMechanism extends LegacyMechanismBase {
 }
 /** @deprecated Kept for migration of old projects */
 export type LegacyMechanism = LegacyTextMechanism;
-export type MarkerType = 'start' | 'finish';
+export type MarkerType = 'start';
 export interface Marker {
     type: MarkerType;
     cellId: string;
@@ -122,6 +123,8 @@ export declare const ASPECT_RATIO_LABELS: Record<AspectRatioPreset, string>;
 export type FullscreenMode = 'button' | 'auto' | 'disabled';
 export declare const FULLSCREEN_MODE_LABELS: Record<FullscreenMode, string>;
 export declare const FULLSCREEN_MODE_DESCRIPTIONS: Record<FullscreenMode, string>;
+export type DebugLogDomain = 'collision' | 'overlap' | 'movement' | 'follow' | 'script' | 'spawn' | 'animation' | 'input' | 'physics' | 'peg' | 'zone' | 'audio' | 'camera' | 'grid' | 'dodge' | 'drag' | 'mask' | 'state' | 'log';
+export declare const ALL_DEBUG_LOG_DOMAINS: DebugLogDomain[];
 export interface GameSettings {
     letterboxColor: string;
     fullscreenMode: FullscreenMode;
@@ -218,6 +221,7 @@ export interface BuildGrid {
 }
 export type StructureViewMode = 'immediate' | 'full';
 export type PanelPosition = 'left' | 'right';
+export type PanelLayout = 'P-S' | 'S-P' | '_-P' | 'S-_' | 'P-_' | '_-S' | '_-_';
 export interface EditorState {
     mode: 'build' | 'play';
     view: EditorView;
@@ -228,10 +232,8 @@ export interface EditorState {
     theme: EditorTheme;
     autoHideMenubar: boolean;
     colors: EditorColors;
-    panelMode: 'both' | 'properties' | 'structure' | 'none';
+    panelLayout: PanelLayout;
     structureViewMode: StructureViewMode;
-    structurePanelPosition: PanelPosition;
-    propertiesPanelPosition: PanelPosition;
     editingComponentId: string | null;
     enteredComponentId: string | null;
     selectedLayerId: string | null;
@@ -244,6 +246,7 @@ export interface EditorState {
     showCollisionOverlay: boolean;
     showComponentIndicators: boolean;
     dirty: boolean;
+    purlSavedHistoryIndex?: number;
     collapsedLayers: Record<string, string[]>;
     autoCollapseStructure: boolean;
     projectOpen: boolean;

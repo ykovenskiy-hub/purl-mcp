@@ -1,4 +1,4 @@
-import type { ShowStatement, HideStatement, WaitStatement, ShoutStatement, PostStatement, FetchStatement, LogStatement, AnimateStatement, StopAnimationStatement, ActionCallStatement, ClearGridStatement, SpawnStatement, DestroyStatement, CopyStatement, AnimateGroupStatement, StopAnimateGroupStatement, PlayStatement, PauseStatement, JumpStatement, ImpulseStatement, ScreenshakeStatement, RevealStatement, RehideStatement, TransportStatement, MoveToStatement, PressStatement, ReleaseStatement } from '../../../types/script';
+import type { ShowStatement, HideStatement, WaitStatement, ShoutStatement, PostStatement, FetchStatement, LogStatement, AnimateStatement, StopAnimationStatement, ActionCallStatement, ClearGridStatement, SpawnStatement, DestroyStatement, CopyStatement, AnimateGroupStatement, StopAnimateGroupStatement, PlayStatement, PauseStatement, JumpStatement, ImpulseStatement, ScreenshakeStatement, RevealStatement, RehideStatement, TransportStatement, MoveToStatement, PressStatement, ReleaseStatement, AddTagStatement, RemoveTagStatement, OpenUrlStatement } from '../../../types/script';
 import type { ControlFlowParserContext } from './controlFlow';
 export type ActionsParserContext = ControlFlowParserContext;
 export declare function parseShow(ctx: ActionsParserContext): ShowStatement;
@@ -29,6 +29,11 @@ export declare function parseFetch(ctx: ActionsParserContext): FetchStatement;
  *   log lines
  */
 export declare function parseLog(ctx: ActionsParserContext): LogStatement;
+/**
+ * Parse openUrl statement: openUrl "https://..." [newTab]
+ * URL can be any expression (string literal, variable, concatenation).
+ */
+export declare function parseOpenUrl(ctx: ActionsParserContext): OpenUrlStatement;
 /**
  * Parse animate statement: shake/vibrate/pulse/squeeze/bounce/spin target duration [params]
  * Examples:
@@ -114,13 +119,13 @@ export declare function parseAnimateGroup(ctx: ActionsParserContext): AnimateGro
  */
 export declare function parseStopAnimateGroup(ctx: ActionsParserContext): StopAnimateGroupStatement;
 /**
- * Parse play statement: play Target [loop]
- * Examples: play Music, play SoundEffect loop, play self
+ * Parse play statement: play Target [loop] [fadeIn N]
+ * Examples: play Music, play SoundEffect loop, play Music fadeIn 2000
  */
 export declare function parsePlay(ctx: ActionsParserContext): PlayStatement;
 /**
- * Parse pause statement: pause Target
- * Examples: pause Music, pause self
+ * Parse pause statement: pause Target [fadeOut N]
+ * Examples: pause Music, pause Music fadeOut 2000
  */
 export declare function parsePause(ctx: ActionsParserContext): PauseStatement;
 /**
@@ -182,3 +187,12 @@ export declare function parsePress(ctx: ActionsParserContext): PressStatement;
  *   release "Space" on Tank  → inject keyUp on Tank
  */
 export declare function parseRelease(ctx: ActionsParserContext): ReleaseStatement;
+/**
+ * Parse addTag statement: addTag target #tag
+ * Examples:
+ *   addTag self #enemy
+ *   addTag Player #active
+ *   addTag #sprites #visible
+ */
+export declare function parseAddTag(ctx: ActionsParserContext): AddTagStatement;
+export declare function parseRemoveTag(ctx: ActionsParserContext): RemoveTagStatement;

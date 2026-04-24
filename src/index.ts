@@ -74,7 +74,7 @@ const bridge = createWsBridge(WS_PORT)
 
 // Tools forwarded to browser (no path param needed — operates on live state)
 const BROWSER_TOOLS = new Set([
-  'get_project', 'list_objects', 'get_object', 'get_script', 'get_states',
+  'get_project', 'list_objects', 'get_object', 'get_script', 'get_script_history', 'get_states',
   'set_property', 'update_script', 'add_object', 'remove_object', 'update_cell',
   'clone_object', 'bulk_set_property',
 ])
@@ -141,6 +141,32 @@ const tools: Tool[] = [
         cellName: {
           type: 'string',
           description: 'Optional: restrict object lookup to this cell. Required when the same object name exists in multiple cells (e.g., after duplicating a cell); otherwise the server errors with a list of candidate cells.',
+        },
+      },
+      required: ['target'],
+    },
+  },
+  {
+    name: 'get_script_history',
+    description: 'Get the MCP edit history of a specific script — all past versions written via update_script, most recent last. Use this to recover code that was accidentally wiped by a previous edit. Each entry shows the timestamp, the user prompt that triggered the edit, and the full code snapshot.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        target: {
+          type: 'string',
+          description: 'Object name (e.g., "Player") or "cell:CellName" for cell scripts',
+        },
+        scriptName: {
+          type: 'string',
+          description: 'Script name on the object/cell. Defaults to "Main".',
+        },
+        cellName: {
+          type: 'string',
+          description: 'Optional: restrict object lookup to this cell when the same object name exists in multiple cells.',
+        },
+        limit: {
+          type: 'number',
+          description: 'Maximum number of most-recent entries to return. Defaults to 10. Pass 0 to return all entries.',
         },
       },
       required: ['target'],

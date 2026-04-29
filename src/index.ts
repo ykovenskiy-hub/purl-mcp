@@ -149,7 +149,7 @@ const tools: Tool[] = [
   },
   {
     name: 'search_scripts',
-    description: 'Search every script in the project (all cell-script tabs and all object-level scripts, templates included) for a substring. Returns one entry per matching line with target/scriptName/lineNumber/line so the result is directly actionable. Use this whenever you need to answer "where is X used / set / played / spawned / destroyed / handled" before making changes — the only reliable way to enumerate distributed Purl logic.',
+    description: 'Search every script in the project (all cell-script tabs and all object-level scripts, templates included) for a substring. Returns one entry per matching line with target/scriptName/lineNumber/line so the result is directly actionable. Pass contextLines: N to also return the N lines above and below each match — usually enough to skip a follow-up get_script call. Use this whenever you need to answer "where is X used / set / played / spawned / destroyed / handled" before making changes — the only reliable way to enumerate distributed Purl logic.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -164,6 +164,10 @@ const tools: Tool[] = [
         cellName: {
           type: 'string',
           description: 'Optional: restrict search to a single cell (by label). Default searches all cells.',
+        },
+        contextLines: {
+          type: 'number',
+          description: 'Optional: number of lines of context to include above and below each match (returned as contextBefore / contextAfter arrays on each match). Default 0 (no context). Capped at 20.',
         },
       },
       required: ['query'],
@@ -280,6 +284,10 @@ const tools: Tool[] = [
           type: 'string',
           description: 'Optional precondition: the version token of the script you read (from get_script\'s "(version: ...)" header or read_project_scripts entry.version). If supplied and does not match the current content, the write is rejected with the actual hash — prevents silently overwriting concurrent changes. Highly recommended for any full-replace of an existing script.',
         },
+        validate: {
+          type: 'boolean',
+          description: 'Optional: when true, parse the new code with the full DSL parser before writing. If parsing fails, the write is rejected with line/column diagnostics and the existing script is unchanged. Default false (matches legacy behavior). Recommended whenever you are not certain the code parses.',
+        },
         prompt: PROMPT_PARAM,
       },
       required: ['target', 'code', 'prompt'],
@@ -324,6 +332,10 @@ const tools: Tool[] = [
         cellName: {
           type: 'string',
           description: 'Optional: restrict object lookup to this cell when the same object name exists in multiple cells.',
+        },
+        validate: {
+          type: 'boolean',
+          description: 'Optional: when true, parse the post-edit content with the full DSL parser before writing. If parsing fails, the edit is rejected with line/column diagnostics and the existing script is unchanged. Default false (matches legacy behavior). Recommended whenever you are not certain the result parses.',
         },
         prompt: PROMPT_PARAM,
       },

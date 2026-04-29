@@ -75,6 +75,7 @@ const bridge = createWsBridge(WS_PORT)
 // Tools forwarded to browser (no path param needed — operates on live state)
 const BROWSER_TOOLS = new Set([
   'get_project', 'list_objects', 'get_object', 'get_script', 'get_script_history', 'get_states',
+  'search_scripts', 'read_project_scripts',
   'set_property', 'update_script', 'add_object', 'remove_object', 'update_cell',
   'clone_object', 'bulk_set_property',
 ])
@@ -144,6 +145,54 @@ const tools: Tool[] = [
         },
       },
       required: ['target'],
+    },
+  },
+  {
+    name: 'search_scripts',
+    description: 'Search every script in the project (all cell-script tabs and all object-level scripts, templates included) for a substring. Returns one entry per matching line with target/scriptName/lineNumber/line so the result is directly actionable. Use this whenever you need to answer "where is X used / set / played / spawned / destroyed / handled" before making changes — the only reliable way to enumerate distributed Purl logic.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        query: {
+          type: 'string',
+          description: 'Substring to find. Case-sensitive by default; pass caseInsensitive: true to relax.',
+        },
+        caseInsensitive: {
+          type: 'boolean',
+          description: 'Optional: when true, match case-insensitively. Default false.',
+        },
+        cellName: {
+          type: 'string',
+          description: 'Optional: restrict search to a single cell (by label). Default searches all cells.',
+        },
+      },
+      required: ['query'],
+    },
+  },
+  {
+    name: 'read_project_scripts',
+    description: 'Dump every script in the project (cell scripts + object scripts, all tabs) in one call. Use this for whole-project audits, refactors, or "find every place X is wired" questions where you need the surrounding code, not just matching lines (use search_scripts when you only need matching lines). Returns a flat array of {target, scriptName, code, lineCount}, sorted scene-order. Skips empty scripts by default. Soft byte cap (default 200000) bounds the response — if exceeded, returns what fits plus a truncation marker; refine via cellName or targets.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        cellName: {
+          type: 'string',
+          description: 'Optional: restrict to a single cell (by label). Default: all cells.',
+        },
+        targets: {
+          type: 'array',
+          items: { type: 'string' },
+          description: 'Optional: restrict to a list of targets. Each entry is either an object name (e.g., "HAB") or "cell:Label" for a cell script. Default: all targets.',
+        },
+        includeEmpty: {
+          type: 'boolean',
+          description: 'Optional: include empty scripts (default false).',
+        },
+        maxBytes: {
+          type: 'number',
+          description: 'Optional: soft cap on response size in bytes (default 200000). When exceeded, the response includes a truncation marker and skipped-entry summary.',
+        },
+      },
     },
   },
   {
@@ -510,13 +559,14 @@ written in the Purl DSL — an event-driven scripting language (onClick, onTick,
 
 1. **Start with \`get_project\`** to understand the project structure — cells, objects, markers.
 2. **Use \`list_objects\`** to see what's in a specific cell.
-3. **Use \`get_script\`** to read an object's script before modifying it.
-4. **Use \`dsl_reference\`** to look up valid events, actions, functions, and properties \
+3. **Use \`get_script\`** to read a single object's script before modifying it. For whole-project audits or refactors that need the surrounding code (not just matching lines), use \`read_project_scripts\` for one-shot recon.
+4. **Use \`search_scripts\`** to grep for a substring across every script (returns matching lines only — fast for "where is X used / set / spawned / handled").
+5. **Use \`dsl_reference\`** to look up valid events, actions, functions, and properties \
 before writing scripts. The Purl DSL has specific syntax — never guess.
-5. **Use \`validate_script\`** to check script syntax before applying it with \`update_script\`.
-6. **Use \`set_property\`** / \`bulk_set_property\`** to change object properties.
-7. **Use \`add_object\`** / \`remove_object\`** to create or delete objects.
-8. **Use \`update_cell\`** to change cell-level settings (gravity, wind, size).
+6. **Use \`validate_script\`** to check script syntax before applying it with \`update_script\`.
+7. **Use \`set_property\`** / \`bulk_set_property\`** to change object properties.
+8. **Use \`add_object\`** / \`remove_object\`** to create or delete objects.
+9. **Use \`update_cell\`** to change cell-level settings (gravity, wind, size).
 
 ## Important notes
 

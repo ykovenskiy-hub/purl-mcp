@@ -325,7 +325,7 @@ const tools = [
     },
     {
         name: 'set_property',
-        description: 'Set properties on an object. Merges the given properties into the object. Use for position (x, y), size (width, height), visibility, tags, content (for text), dynamics settings, etc.',
+        description: 'Set properties on an object. Merges the given properties into the object. Use for position (x, y), size (width, height), visibility, tags, content (for text), dynamics settings, etc. For nested-shape properties (arrays/maps) the call is guarded: `expectedVersion` is required to prevent stale-baseline overwrites, and `confirmTypeChange` is required when the property\'s shape changes among array/map/scalar. Read with get_object first to obtain `_versions`.',
         inputSchema: {
             type: 'object',
             properties: {
@@ -340,6 +340,14 @@ const tools = [
                 properties: {
                     type: 'object',
                     description: 'Key-value pairs to set on the object (e.g., {"x": 0.3, "y": 0.5, "visible": false})',
+                },
+                expectedVersion: {
+                    type: 'object',
+                    description: 'Optional precondition map: {propName: hash} from get_object\'s `_versions`. REQUIRED for any property in `properties` whose CURRENT value is an array or map — prevents silently overwriting concurrent changes. Mismatch is reported with the actual hash so you can rebase. Scalar properties don\'t need versions.',
+                },
+                confirmTypeChange: {
+                    type: 'boolean',
+                    description: 'Pass true to allow changing a property\'s shape among array/map/scalar. REQUIRED for those transitions; protects against accidental clobber of nested data with a scalar (or vice-versa). Creation (property absent → set) and deletion don\'t need this flag.',
                 },
                 prompt: PROMPT_PARAM,
             },
@@ -459,7 +467,7 @@ const tools = [
     },
     {
         name: 'bulk_set_property',
-        description: 'Set properties on multiple objects in a single call. Useful for mass-editing children of a component (e.g., changing colors). Each entry specifies an object name and properties to set.',
+        description: 'Set properties on multiple objects in a single call. Useful for mass-editing children of a component (e.g., changing colors). Each entry specifies an object name and properties to set. Same nested-write guards as set_property apply per entry: pass `expectedVersion` for any property currently holding an array/map and `confirmTypeChange:true` to allow shape changes.',
         inputSchema: {
             type: 'object',
             properties: {
@@ -475,6 +483,14 @@ const tools = [
                             properties: {
                                 type: 'object',
                                 description: 'Key-value pairs to set',
+                            },
+                            expectedVersion: {
+                                type: 'object',
+                                description: 'Optional per-property hash map (from get_object\'s `_versions`). Required for any property in `properties` whose current value is an array or map.',
+                            },
+                            confirmTypeChange: {
+                                type: 'boolean',
+                                description: 'Pass true to allow shape changes (array/map/scalar) on this entry\'s properties.',
                             },
                         },
                         required: ['objectName', 'properties'],
@@ -522,6 +538,10 @@ const tools = [
                 value: {
                     description: 'Value to append. Any JSON: scalar, array, or object. Required.',
                 },
+                expectedVersion: {
+                    type: 'string',
+                    description: 'Optional precondition: hash of the top-level property (from get_object\'s `_versions[topSlot]`). When supplied, the call is rejected if the top slot has changed since you read it. Optional because push is additive — supply when you need to ensure no concurrent edit slipped in.',
+                },
                 prompt: PROMPT_PARAM,
             },
             required: ['objectName', 'path', 'value', 'prompt'],
@@ -542,6 +562,10 @@ const tools = [
                 value: {
                     description: 'New value at the path. Any JSON: scalar, array, or object.',
                 },
+                expectedVersion: {
+                    type: 'string',
+                    description: 'Optional precondition: hash of the top-level property (from get_object\'s `_versions[topSlot]`). When supplied, rejects the write if the top slot has changed since you read it.',
+                },
                 prompt: PROMPT_PARAM,
             },
             required: ['objectName', 'path', 'value', 'prompt'],
@@ -558,6 +582,10 @@ const tools = [
                 path: {
                     type: 'string',
                     description: 'Dotted/bracketed path to the entry to remove (e.g., "value[5]", "value.config.foo").',
+                },
+                expectedVersion: {
+                    type: 'string',
+                    description: 'Optional precondition: hash of the top-level property (from get_object\'s `_versions[topSlot]`). When supplied, rejects the call if the top slot has changed since you read it.',
                 },
                 prompt: PROMPT_PARAM,
             },

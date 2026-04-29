@@ -76,7 +76,7 @@ const bridge = createWsBridge(WS_PORT)
 const BROWSER_TOOLS = new Set([
   'get_project', 'list_objects', 'get_object', 'get_script', 'get_script_history', 'get_states',
   'search_scripts', 'read_project_scripts',
-  'set_property', 'update_script', 'add_object', 'remove_object', 'update_cell',
+  'set_property', 'update_script', 'edit_script', 'add_object', 'remove_object', 'update_cell',
   'clone_object', 'bulk_set_property',
 ])
 
@@ -171,7 +171,7 @@ const tools: Tool[] = [
   },
   {
     name: 'read_project_scripts',
-    description: 'Dump every script in the project (cell scripts + object scripts, all tabs) in one call. Use this for whole-project audits, refactors, or "find every place X is wired" questions where you need the surrounding code, not just matching lines (use search_scripts when you only need matching lines). Returns a flat array of {target, scriptName, code, lineCount}, sorted scene-order. Skips empty scripts by default. Soft byte cap (default 200000) bounds the response — if exceeded, returns what fits plus a truncation marker; refine via cellName or targets.',
+    description: 'Dump every script in the project (cell scripts + object scripts, all tabs) in one call. Use this for whole-project audits, refactors, or "find every place X is wired" questions where you need the surrounding code, not just matching lines (use search_scripts when you only need matching lines). Returns a flat array of {target, scriptName, code, lineCount}, sorted scene-order. Skips empty scripts by default. Soft byte cap (default 50000) bounds the response — if exceeded, returns what fits plus a truncation marker; refine via cellName or targets.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -256,7 +256,7 @@ const tools: Tool[] = [
   },
   {
     name: 'update_script',
-    description: 'Set script code for an object or cell. If a script with the given name exists, its code is replaced. If not, a new script entry is created.',
+    description: 'Full-replace a script: writes the supplied code as the new content. Use for genuine rewrites or to create a new script slot. For incremental edits to an existing script, prefer edit_script — its anchor matching catches stale baselines that update_script would silently overwrite. If you must full-replace an existing script, pass expectedVersion (from get_script or read_project_scripts) so a stale write fails loudly instead of stomping concurrent changes.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -276,9 +276,58 @@ const tools: Tool[] = [
           type: 'string',
           description: 'Optional: restrict object lookup to this cell. Required when the same object name exists in multiple cells (e.g., after duplicating a cell); otherwise the server errors with a list of candidate cells.',
         },
+        expectedVersion: {
+          type: 'string',
+          description: 'Optional precondition: the version token of the script you read (from get_script\'s "(version: ...)" header or read_project_scripts entry.version). If supplied and does not match the current content, the write is rejected with the actual hash — prevents silently overwriting concurrent changes. Highly recommended for any full-replace of an existing script.',
+        },
         prompt: PROMPT_PARAM,
       },
       required: ['target', 'code', 'prompt'],
+    },
+  },
+  {
+    name: 'edit_script',
+    description: 'Edit an existing script via a list of find/replace anchors — the safe way to change part of a script without overwriting unrelated lines. Each edit\'s "old" string must match exactly once in the current content (or set replaceAll: true to replace every occurrence). Edits are applied sequentially in the order supplied; each later edit operates on the result of the previous. Atomic: if any anchor fails to match (zero or multiple), the whole call is rejected with line numbers — nothing is written. Use this for targeted changes; use update_script only for full rewrites or brand-new scripts. Stale baselines fail loudly because the anchor either matches today\'s content (safe) or doesn\'t (rejected).',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        target: {
+          type: 'string',
+          description: 'Object name (e.g., "Player") or "cell:CellName" for cell scripts',
+        },
+        edits: {
+          type: 'array',
+          items: {
+            type: 'object',
+            properties: {
+              old: {
+                type: 'string',
+                description: 'Exact substring to find in the current script content. Multi-line strings are fine. Must match exactly once unless replaceAll is true.',
+              },
+              new: {
+                type: 'string',
+                description: 'Replacement string. May be empty to delete the matched text.',
+              },
+              replaceAll: {
+                type: 'boolean',
+                description: 'When true, replace every occurrence of "old" instead of requiring a unique match. Default false.',
+              },
+            },
+            required: ['old', 'new'],
+          },
+          description: 'Ordered list of find/replace edits. Sequential — later edits see earlier results.',
+        },
+        scriptName: {
+          type: 'string',
+          description: 'Script slot to edit (default: "Main"). Required if the target object has multiple scripts.',
+        },
+        cellName: {
+          type: 'string',
+          description: 'Optional: restrict object lookup to this cell when the same object name exists in multiple cells.',
+        },
+        prompt: PROMPT_PARAM,
+      },
+      required: ['target', 'edits', 'prompt'],
     },
   },
   {
@@ -563,10 +612,16 @@ written in the Purl DSL — an event-driven scripting language (onClick, onTick,
 4. **Use \`search_scripts\`** to grep for a substring across every script (returns matching lines only — fast for "where is X used / set / spawned / handled").
 5. **Use \`dsl_reference\`** to look up valid events, actions, functions, and properties \
 before writing scripts. The Purl DSL has specific syntax — never guess.
-6. **Use \`validate_script\`** to check script syntax before applying it with \`update_script\`.
-7. **Use \`set_property\`** / \`bulk_set_property\`** to change object properties.
-8. **Use \`add_object\`** / \`remove_object\`** to create or delete objects.
-9. **Use \`update_cell\`** to change cell-level settings (gravity, wind, size).
+6. **Use \`validate_script\`** to check script syntax before applying it.
+7. **Editing an existing script: prefer \`edit_script\`** (anchor-based find/replace). \
+Each anchor must match the current content exactly — stale baselines fail loudly \
+instead of silently overwriting unrelated lines. \`update_script\` is full-replace \
+and is only the right call for genuine rewrites or brand-new scripts; when you do \
+use it on an existing script, pass \`expectedVersion\` (from \`get_script\`'s header \
+or \`read_project_scripts\` entry) so a concurrent change can't be stomped.
+8. **Use \`set_property\`** / \`bulk_set_property\`** to change object properties.
+9. **Use \`add_object\`** / \`remove_object\`** to create or delete objects.
+10. **Use \`update_cell\`** to change cell-level settings (gravity, wind, size).
 
 ## Important notes
 

@@ -60,6 +60,7 @@ const BROWSER_TOOLS = new Set([
     'search_scripts', 'read_project_scripts',
     'set_property', 'update_script', 'edit_script', 'add_object', 'remove_object', 'update_cell',
     'clone_object', 'bulk_set_property',
+    'push_value', 'set_value_at_path', 'remove_value_at_path',
 ]);
 // Shared schema for the `prompt` parameter required on every write tool. The
 // editor keys its undo-history batching on this string, so the LLM must pass
@@ -487,6 +488,80 @@ const tools = [
                 prompt: PROMPT_PARAM,
             },
             required: ['updates', 'prompt'],
+        },
+    },
+    // ---------------------------------------------------------------------------
+    // Granular write tools for nested-data properties (DATA primes' `dataValue`,
+    // grid cell-data, anything holding an array or map). Additive by construction:
+    // each tool touches exactly one slot, so unrelated entries can't be destroyed
+    // by accident. Prefer these over `set_property` for partial mutations of
+    // structured data — `set_property` is a full property replace and requires
+    // `expectedVersion` for nested values to prevent stale-baseline overwrites.
+    //
+    // Path syntax (all three tools): bracket-and-dot subset.
+    //   "value"                  — top-level property
+    //   "value[5]"               — element 5 of an array property
+    //   "value[5].correct"       — field on the array element
+    //   "value.config.maxAlt"    — nested map key
+    //   "value.records[0].x"     — mixed
+    // Bracketed integers and dotted identifiers only — no expressions, no
+    // computed indices, no string keys with brackets.
+    // ---------------------------------------------------------------------------
+    {
+        name: 'push_value',
+        description: 'Append a value to an array at a nested path. Additive — only the target array is touched; siblings and unrelated entries stay intact. Errors if the target isn\'t an array. Use this instead of `set_property` for adding items to a DATA prime\'s value (or any other array-shaped property).',
+        inputSchema: {
+            type: 'object',
+            properties: {
+                objectName: { type: 'string', description: 'Name of the object whose property holds the array' },
+                cellName: { type: 'string', description: 'Optional: cell to search in (by label)' },
+                path: {
+                    type: 'string',
+                    description: 'Dotted/bracketed path to the array (e.g., "value", "value.records", "value.config.scores"). Bracket-indexed segments allowed for nested arrays.',
+                },
+                value: {
+                    description: 'Value to append. Any JSON: scalar, array, or object. Required.',
+                },
+                prompt: PROMPT_PARAM,
+            },
+            required: ['objectName', 'path', 'value', 'prompt'],
+        },
+    },
+    {
+        name: 'set_value_at_path',
+        description: 'Set a single nested value at the given path. Auto-creates intermediate objects/arrays where needed. Siblings stay intact. Use this instead of `set_property` for changing one field deep in a DATA prime\'s value (or any other nested property).',
+        inputSchema: {
+            type: 'object',
+            properties: {
+                objectName: { type: 'string', description: 'Name of the object whose property holds the value' },
+                cellName: { type: 'string', description: 'Optional: cell to search in (by label)' },
+                path: {
+                    type: 'string',
+                    description: 'Dotted/bracketed path to the leaf (e.g., "value[5].correct", "value.config.maxAlt"). At least one segment required.',
+                },
+                value: {
+                    description: 'New value at the path. Any JSON: scalar, array, or object.',
+                },
+                prompt: PROMPT_PARAM,
+            },
+            required: ['objectName', 'path', 'value', 'prompt'],
+        },
+    },
+    {
+        name: 'remove_value_at_path',
+        description: 'Remove a single value at the given path. For arrays, removes the element at the bracket index and shifts subsequent elements down. For maps, deletes the keyed entry. Errors if the path doesn\'t exist (no silent no-ops).',
+        inputSchema: {
+            type: 'object',
+            properties: {
+                objectName: { type: 'string', description: 'Name of the object' },
+                cellName: { type: 'string', description: 'Optional: cell to search in (by label)' },
+                path: {
+                    type: 'string',
+                    description: 'Dotted/bracketed path to the entry to remove (e.g., "value[5]", "value.config.foo").',
+                },
+                prompt: PROMPT_PARAM,
+            },
+            required: ['objectName', 'path', 'prompt'],
         },
     },
 ];

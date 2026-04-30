@@ -370,7 +370,7 @@ const tools = [
                 },
                 type: {
                     type: 'string',
-                    enum: ['shape', 'text', 'line', 'grid', 'component', 'audio', 'emitter', 'mask', 'peg', 'viewport'],
+                    enum: ['shape', 'text', 'line', 'grid', 'component', 'audio', 'emitter', 'mask', 'peg', 'viewport', 'data'],
                     description: 'Object type',
                 },
                 properties: {

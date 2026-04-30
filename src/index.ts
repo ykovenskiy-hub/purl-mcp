@@ -734,7 +734,11 @@ instead of silently overwriting unrelated lines. \`update_script\` is full-repla
 and is only the right call for genuine rewrites or brand-new scripts; when you do \
 use it on an existing script, pass \`expectedVersion\` (from \`get_script\`'s header \
 or \`read_project_scripts\` entry) so a concurrent change can't be stomped.
-8. **Use \`set_property\`** / \`bulk_set_property\`** to change object properties.
+8. **Changing object properties:**
+   - \`set_property\` / \`bulk_set_property\` — for scalar properties (position, visibility, content, dynamics flags, etc.). Merges the given keys onto the object.
+   - For **nested array/map properties** (especially DATA primes' \`value\`), prefer the granular tools — they touch only the target path and leave siblings intact: \`push_value\` (append to an array), \`set_value_at_path\` (set/replace a single leaf — auto-creates intermediate maps/arrays), \`remove_value_at_path\` (delete a map key or shift-out an array element).
+   - Path syntax is dotted identifiers + bracket integers, e.g. \`value\`, \`value[5]\`, \`value[5].correct\`, \`value.config.maxAlt\`.
+   - **Safety contract on \`set_property\` / \`bulk_set_property\`:** \`get_object\` returns a \`_versions\` map (FNV-1a hashes) for array/map-shaped properties. For any property currently holding an array or map you MUST pass \`expectedVersion: { propName: hash }\` — a mismatch reports the current hash so you can rebase. To change a property's shape (array↔map↔scalar) you MUST pass \`confirmTypeChange: true\`. Scalar properties need neither. The granular tools accept an optional \`expectedVersion\` (single string against the top slot) for the same precondition.
 9. **Use \`add_object\`** / \`remove_object\`** to create or delete objects.
 10. **Use \`update_cell\`** to change cell-level settings (gravity, wind, size).
 

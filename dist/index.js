@@ -765,6 +765,102 @@ written in the Purl DSL — an event-driven scripting language (onClick, onTick,
 **Components** are grouping objects whose children move together. They support **presets** \
 (named visual states) and **state transitions**.
 
+## Worldview
+
+Purl models a game world the way a person thinks about one, not the way a software engineer \
+would architect one. The DSL is reactive and broadcast-based: most state is shared, things \
+observe and respond to it, and direct cross-object writes are the escape hatch rather than the \
+primary mode of coordination. Several specifics that may run counter to defaults from \
+mainstream languages:
+
+- **The world is the default namespace.** Bare names (\`score\`, \`keysCollected\`) are \
+session-shared across the entire project — every object, every cell, every script reads the \
+same slot. Treat bare names as "facts about the world." Per-instance data is \`self.\`. \
+Persistence is \`game.\` (cross-cell within a session) or \`local.\` (across browser reloads). \
+The scope hierarchy is **how-long-it-lives**, not who-can-see-it.
+
+- **Each object is self-sufficient — it manages its own properties based on state and messages \
+it watches.** When you set \`OtherObject.opacity 0\` from inside your script, you've turned a \
+remote control into a poking stick: the other object stops being a *participant* and becomes a \
+prop. The idiomatic shape is to change shared state or \`shout\` a message the other object \
+handles via \`onMessage\` — and let it decide what to do. Cross-object writes exist for the \
+exception cases (a manager initializing children, a cell's \`onEnter\` seeding state), not for \
+routine coordination.
+
+- **State broadcasts down from containers.** Setting \`Component.state "OPEN"\` applies the \
+preset to every child that has it — the component is the broadcaster, children are listeners. \
+Use \`Component.Child.state\` only when narrowing to one specific child is the intent.
+
+- **Cells are stages.** Cell-wide context — \`onEnter\`, key events, room-level coordination — \
+naturally lives on the cell script. The cell can \`shout\` and objects respond via \
+\`onMessage\`. (Object scripts can also receive key events directly; the cell is just the \
+conventional home for "what does this key mean in this scene.")
+
+If these defaults feel inverted relative to mainstream language conventions — they are. \
+Mainstream languages optimize for large-team engineering (narrow scope by default, encapsulation, \
+command-style coordination). Purl optimizes for a single creator articulating a world, where \
+data is genuinely shared and reactive composition is more natural than imperative commands. \
+The principles below follow from this frame.
+
+## Authoring principles
+
+1. **Self-sufficient objects.** Each object manages its own properties. Coordinate via shared \
+state or \`shout\`/\`onMessage\` and let the recipient decide — see the worldview's "remote \
+control vs poking stick." Cross-object writes are reserved for the exception cases listed there.
+
+2. **Component scripts at the component level.** A component's behavior lives on the component \
+itself. Script its children only when the behavior is genuinely child-specific.
+
+3. **Prefer \`Component.state\` over \`Component.Child.state\`.** Setting state on the \
+component broadcasts to every child that has that state — usually the intent for synchronized \
+visual changes. Use \`Component.Child.state\` only when you want to set state on one child \
+without affecting siblings. Note: the child form silently no-ops if the child name is wrong or \
+stale (e.g. after a rename), so prefer the broadcast form by default.
+
+4. **State names are quoted strings — except cycle keywords.** Use \`set self.state "SUMMER"\`. \
+Bareword identifiers parse as variable lookups, not literal state names, and silently resolve \
+to whatever value (often undefined) the variable holds. The exceptions are \`next\` and \
+\`prev\`, which the runtime intercepts as cycle keywords: \`set X.state next\` advances to the \
+next preset in the component's state order (and \`prev\` to the previous). Same rule in \
+comparisons: \`if self.state == "SUMMER"\`.
+
+5. **Match the handler to the cadence.** Continuous logic (sampling positions, smooth \
+interpolation) → \`onTick\`. Discrete events (clicks, collisions, messages, key presses) → \
+their respective handlers. Don't poll for events in \`onTick\`; don't run per-frame logic in \
+event handlers.
+
+6. **Mark objects \`movable\` if you intend to move them.** Position writes on a non-movable \
+object don't reach the dynamics engine and will desync from physics. When the object is \
+\`movable\`, \`set obj.x\` / \`set obj.y\` go through dynamics correctly. For animated motion \
+across cells/grids, use \`transport\` (smooth tween) or \`movable + snapToCell + input:script\` \
+(responsive per-press control). The choice you're making is "is this object moved by the engine \
+at all" — once that's yes, position writes work as you'd expect.
+
+7. **\`dsl_reference\` before inventing names.** Event names, action names, function names — if \
+you're not certain the name exists in the DSL, look it up. Plausible-sounding guesses fail \
+silently.
+
+8. **Read before writing.** Use \`get_script\` or \`read_project_scripts\` to see the current \
+state of any script you're about to modify. Default to \`edit_script\` (anchor-based) over \
+\`update_script\` (full replace). Preserve every line you're not intentionally changing.
+
+9. **Mask \`clipTag\` is scene-global, matched by string.** Two masks with the same \`clipTag\` \
+clip each other's targets. Ensure values are unique in the cell.
+
+10. **Variable scope is set by prefix — choose the scope your value actually needs.** Purl \
+exposes four scopes, ordered from broadest to narrowest:
+   - **bare name** (\`set X v\`) — SESSION: one slot shared across the whole project. Right for \
+actual shared state (score, game flags, level config, coordination between unrelated objects).
+   - **\`self.X\`** — object-instance-local. Each spawned instance has its own slot. Right for \
+per-instance state and for per-handler temps in any script that can run concurrently (spawned \
+via template, fired by foreach, multiple shouts in flight).
+   - **\`game.X\`** — persists across cells within a play session.
+   - **\`local.X\`** — persists across browser reloads via localStorage.
+
+   The most common scope mismatch is using a bareword temp inside an object handler when you \
+meant \`self.X\` — multiple instances then race on the shared session slot. Pick \`self.\` \
+whenever the value is conceptually "mine, for this handler."
+
 ## How to use these tools
 
 1. **Start with \`get_project\`** to understand the project structure — cells, objects, markers.

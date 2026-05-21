@@ -79,6 +79,7 @@ const BROWSER_TOOLS = new Set([
   'set_property', 'update_script', 'edit_script', 'add_object', 'remove_object', 'update_cell',
   'clone_object', 'bulk_set_property',
   'push_value', 'set_value_at_path', 'remove_value_at_path',
+  'get_debug_logs', 'set_debug_domains', 'clear_debug_logs',
 ])
 
 // Shared schema for the `prompt` parameter required on every write tool. The
@@ -610,6 +611,60 @@ const tools: Tool[] = [
         prompt: PROMPT_PARAM,
       },
       required: ['objectName', 'path', 'prompt'],
+    },
+  },
+  // --- Play Debug log tools ---
+  // Read the live debug log buffer from a running play session. Only entries
+  // for currently-enabled domains are written, so call set_debug_domains first
+  // to ensure the categories you care about are being collected.
+  {
+    name: 'get_debug_logs',
+    description: 'Read recent debug log entries from the running play session. Useful for verifying what the engine saw after a test action (input received? error fired? audio playing?). Only entries for currently-enabled domains exist in the buffer — call set_debug_domains first to enable categories.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        since: {
+          type: 'number',
+          description: 'Optional: only return entries with timestamp >= this (ms since epoch). Use Date.now() before a test action, then read entries with since=<that timestamp>.',
+        },
+        limit: {
+          type: 'number',
+          description: 'Optional: max entries to return (default 200, returns most recent).',
+        },
+        domains: {
+          type: 'array',
+          items: { type: 'string' },
+          description: 'Optional: filter to entries from these domains (collision, movement, follow, dodge, physics, zone, camera, mask, input, audio, errors, log). Empty/omitted = all domains.',
+        },
+        types: {
+          type: 'array',
+          items: { type: 'string' },
+          description: 'Optional: filter by entry type (summary, log, error, domain). Empty/omitted = all types.',
+        },
+      },
+    },
+  },
+  {
+    name: 'set_debug_domains',
+    description: 'Enable a specific set of debug chips on the running play session. Replaces the current set (pass empty array to disable all). Valid domains: collision, movement, follow, dodge, physics, zone, camera, mask, input, audio, errors, log.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        domains: {
+          type: 'array',
+          items: { type: 'string' },
+          description: 'Domain names to enable. Empty array = all off.',
+        },
+      },
+      required: ['domains'],
+    },
+  },
+  {
+    name: 'clear_debug_logs',
+    description: 'Empty the debug log buffer. Use before triggering a test action so the subsequent get_debug_logs call only contains entries from that action.',
+    inputSchema: {
+      type: 'object',
+      properties: {},
     },
   },
 ]

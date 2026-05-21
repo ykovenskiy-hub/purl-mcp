@@ -13,6 +13,9 @@
  */
 
 import { execSync } from 'node:child_process'
+import { readFileSync } from 'node:fs'
+import { fileURLToPath } from 'node:url'
+import { dirname, join } from 'node:path'
 import { Server } from '@modelcontextprotocol/sdk/server/index.js'
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
 import {
@@ -68,10 +71,6 @@ function killZombieSiblings(): void {
 
 killZombieSiblings()
 
-// WebSocket bridge to browser
-const WS_PORT = Number(process.env.PURL_WS_PORT) || 3001
-const bridge = createWsBridge(WS_PORT)
-
 // Tools forwarded to browser (no path param needed — operates on live state)
 const BROWSER_TOOLS = new Set([
   'get_project', 'list_objects', 'get_object', 'get_script', 'get_script_history', 'get_states',
@@ -81,6 +80,25 @@ const BROWSER_TOOLS = new Set([
   'push_value', 'set_value_at_path', 'remove_value_at_path',
   'get_debug_logs', 'set_debug_domains', 'clear_debug_logs',
 ])
+
+// Read our own version so the handshake can tell the editor what server it's
+// talking to. package.json sits one dir above dist/index.js at runtime.
+function readServerVersion(): string {
+  try {
+    const here = dirname(fileURLToPath(import.meta.url))
+    const pkg = JSON.parse(readFileSync(join(here, '..', 'package.json'), 'utf8'))
+    return typeof pkg.version === 'string' ? pkg.version : 'unknown'
+  } catch {
+    return 'unknown'
+  }
+}
+
+// WebSocket bridge to browser
+const WS_PORT = Number(process.env.PURL_WS_PORT) || 3001
+const bridge = createWsBridge(WS_PORT, {
+  version: readServerVersion(),
+  tools: [...BROWSER_TOOLS],
+})
 
 // Shared schema for the `prompt` parameter required on every write tool. The
 // editor keys its undo-history batching on this string, so the LLM must pass

@@ -8,7 +8,7 @@
  */
 import { WebSocketServer, WebSocket } from 'ws';
 const REQUEST_TIMEOUT_MS = 10_000;
-export function createWsBridge(port) {
+export function createWsBridge(port, serverInfo) {
     let activeConnection = null;
     let requestId = 0;
     let wss = null;
@@ -22,6 +22,18 @@ export function createWsBridge(port) {
             }
             activeConnection = ws;
             console.error('[WS Bridge] Browser connected');
+            // Handshake: tell the editor what version we are and which tools we advertise.
+            // The editor compares this to its own handler set and warns on drift.
+            try {
+                ws.send(JSON.stringify({
+                    type: '__hello__',
+                    version: serverInfo.version,
+                    tools: serverInfo.tools,
+                }));
+            }
+            catch {
+                // best-effort — if the send fails the connection will close anyway
+            }
             ws.on('message', (data) => {
                 try {
                     const msg = JSON.parse(data.toString());

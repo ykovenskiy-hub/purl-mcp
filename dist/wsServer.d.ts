@@ -6,9 +6,13 @@
  * Binds the requested port strictly — if it's busy, exits with a clear error.
  * (Sibling MCP processes are killed on startup; see index.ts.)
  */
+export interface ServerInfo {
+    version: string;
+    tools: string[];
+}
 export interface WsBridge {
     forward(tool: string, params: Record<string, unknown>): Promise<string>;
     isConnected(): boolean;
     close(): void;
 }
-export declare function createWsBridge(port: number): WsBridge;
+export declare function createWsBridge(port: number, serverInfo: ServerInfo): WsBridge;

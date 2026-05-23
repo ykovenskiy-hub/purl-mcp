@@ -49,9 +49,11 @@ var KEYWORDS = [
   "any",
   "count",
   "action",
+  "function",
   "self",
   "other",
   "parent",
+  "root",
   "siblings",
   "children",
   "shout",
@@ -67,8 +69,8 @@ var KEYWORDS = [
   "in",
   "is",
   "log",
-  "openUrl",
-  "newTab",
+  "openurl",
+  "newtab",
   "shake",
   "vibrate",
   "pulse",
@@ -76,9 +78,18 @@ var KEYWORDS = [
   "bounce",
   "spin",
   "glow",
+  "sway",
   "screenshake",
   "stop",
   "loop",
+  "saturate",
+  "desaturate",
+  "huerotate",
+  "lighten",
+  "darken",
+  "invert",
+  "scene",
+  "inject",
   "horizontal",
   "vertical",
   "cw",
@@ -136,9 +147,12 @@ var KEYWORDS = [
   "press",
   "release",
   "addtag",
-  "removetag"
+  "removetag",
+  "push",
+  "remove",
+  "insert"
 ];
-var ANIMATION_KEYWORDS = ["shake", "vibrate", "pulse", "squeeze", "bounce", "spin", "glow"];
+var ANIMATION_KEYWORDS = ["shake", "vibrate", "pulse", "squeeze", "bounce", "spin", "glow", "sway"];
 var TYPE_SELECTORS = {
   // Object types (plural)
   "text": "text",
@@ -443,6 +457,11 @@ function parsePrimary(ctx) {
     ctx.expect("RBRACKET");
     return { type: "array", elements };
   }
+  if (ctx.check("LBRACE")) {
+    ctx.advance();
+    const entries = parseBraceBag(ctx);
+    return { type: "map", entries };
+  }
   if (token.type === "KEYWORD" && (token.value === "all" || token.value === "any" || token.value === "count")) {
     const nextToken = ctx.peekNext();
     const isTag = nextToken && nextToken.type === "TAG";
@@ -563,37 +582,39 @@ function parsePrimary(ctx) {
       }
       ctx.expect("RPAREN");
       let result = { type: "function", name, args };
-      if (ctx.check("LBRACKET")) {
+      while (ctx.check("LBRACKET")) {
         ctx.advance();
         const index = parseExpression(ctx);
         ctx.expect("RBRACKET");
-        let property;
-        if (ctx.check("DOT")) {
+        let tailProperty;
+        while (ctx.check("DOT")) {
+          const next = ctx.peekNext();
+          if (!next || next.type !== "IDENTIFIER" && next.type !== "KEYWORD") break;
           ctx.advance();
-          const propToken = ctx.peek();
-          if (propToken.type === "IDENTIFIER" || propToken.type === "KEYWORD") {
-            ctx.advance();
-            property = propToken.value;
-          }
+          ctx.advance();
+          tailProperty = tailProperty === void 0 ? next.value : `${tailProperty}.${next.value}`;
         }
-        result = { type: "index", array: result, index, property };
+        result = tailProperty !== void 0 ? { type: "index", array: result, index, property: tailProperty } : { type: "index", array: result, index };
       }
       return result;
     }
     if (ctx.check("LBRACKET")) {
-      ctx.advance();
-      const index = parseExpression(ctx);
-      ctx.expect("RBRACKET");
-      let property;
-      if (ctx.check("DOT")) {
+      let result = { type: "get", key: name };
+      while (ctx.check("LBRACKET")) {
         ctx.advance();
-        const propToken = ctx.peek();
-        if (propToken.type === "IDENTIFIER" || propToken.type === "KEYWORD") {
+        const index = parseExpression(ctx);
+        ctx.expect("RBRACKET");
+        let tailProperty;
+        while (ctx.check("DOT")) {
+          const next = ctx.peekNext();
+          if (!next || next.type !== "IDENTIFIER" && next.type !== "KEYWORD") break;
           ctx.advance();
-          property = propToken.value;
+          ctx.advance();
+          tailProperty = tailProperty === void 0 ? next.value : `${tailProperty}.${next.value}`;
         }
+        result = tailProperty !== void 0 ? { type: "index", array: result, index, property: tailProperty } : { type: "index", array: result, index };
       }
-      return { type: "index", array: { type: "get", key: name }, index, property };
+      return result;
     }
     if (ctx.check("DOT")) {
       const nextToken = ctx.peekNext();
@@ -627,7 +648,22 @@ function parsePrimary(ctx) {
         const varToken = ctx.peek();
         if (varToken.type === "IDENTIFIER" || varToken.type === "KEYWORD") {
           ctx.advance();
-          return { type: "get", key: `${name}.${varToken.value}` };
+          let result = { type: "get", key: `${name}.${varToken.value}` };
+          while (ctx.check("LBRACKET")) {
+            ctx.advance();
+            const index = parseExpression(ctx);
+            ctx.expect("RBRACKET");
+            let tailProperty;
+            while (ctx.check("DOT")) {
+              const next = ctx.peekNext();
+              if (!next || next.type !== "IDENTIFIER" && next.type !== "KEYWORD") break;
+              ctx.advance();
+              ctx.advance();
+              tailProperty = tailProperty === void 0 ? next.value : `${tailProperty}.${next.value}`;
+            }
+            result = tailProperty !== void 0 ? { type: "index", array: result, index, property: tailProperty } : { type: "index", array: result, index };
+          }
+          return result;
         }
       }
       const parts = [name];
@@ -657,7 +693,22 @@ function parsePrimary(ctx) {
         }
         const property = parts.pop();
         const object = parts.join(".");
-        return { type: "property", object, property };
+        let result = { type: "property", object, property };
+        while (ctx.check("LBRACKET")) {
+          ctx.advance();
+          const index = parseExpression(ctx);
+          ctx.expect("RBRACKET");
+          let tailProperty;
+          while (ctx.check("DOT")) {
+            const next = ctx.peekNext();
+            if (!next || next.type !== "IDENTIFIER" && next.type !== "KEYWORD") break;
+            ctx.advance();
+            ctx.advance();
+            tailProperty = tailProperty === void 0 ? next.value : `${tailProperty}.${next.value}`;
+          }
+          result = tailProperty !== void 0 ? { type: "index", array: result, index, property: tailProperty } : { type: "index", array: result, index };
+        }
+        return result;
       }
     }
     return { type: "get", key: name };
@@ -665,6 +716,22 @@ function parsePrimary(ctx) {
   ctx.error(`Unexpected token in expression: ${token.value}`);
   ctx.advance();
   return { type: "literal", value: 0 };
+}
+function parseBraceBag(ctx) {
+  const entries = {};
+  while (!ctx.check("RBRACE") && !ctx.check("NEWLINE") && !ctx.isAtEnd()) {
+    const keyToken = ctx.peek();
+    if (keyToken.type !== "IDENTIFIER" && keyToken.type !== "KEYWORD" && keyToken.type !== "STRING") {
+      break;
+    }
+    ctx.advance();
+    const key = keyToken.value;
+    if (ctx.check("COLON")) ctx.advance();
+    entries[key] = parseExpression(ctx);
+    if (ctx.check("COMMA")) ctx.advance();
+  }
+  if (ctx.check("RBRACE")) ctx.advance();
+  return entries;
 }
 function parseIdentifierOrString(ctx) {
   const token = ctx.peek();
@@ -675,6 +742,31 @@ function parseIdentifierOrString(ctx) {
   if (token.type === "IDENTIFIER" || token.type === "KEYWORD") {
     ctx.advance();
     return token.value;
+  }
+  ctx.error(`Expected identifier or string, got ${token.type}`);
+  return "";
+}
+function parseObjectTarget(ctx) {
+  const token = ctx.peek();
+  if (token.type === "STRING") {
+    ctx.advance();
+    return token.value;
+  }
+  if (token.type === "IDENTIFIER" || token.type === "KEYWORD") {
+    ctx.advance();
+    const parts = [token.value];
+    while (ctx.check("DOT")) {
+      ctx.advance();
+      const tok = ctx.peek();
+      if (tok.type === "IDENTIFIER" || tok.type === "KEYWORD") {
+        ctx.advance();
+        parts.push(tok.value);
+      } else {
+        ctx.error(`Expected identifier after '.', got ${tok.type}`);
+        break;
+      }
+    }
+    return parts.join(".");
   }
   ctx.error(`Expected identifier or string, got ${token.type}`);
   return "";
@@ -874,7 +966,7 @@ var INITIAL_GAME_STATE = {
   camera: { ...INITIAL_CAMERA_STATE }
 };
 var GOTO_TRANSITIONS = ["fade", "slide-left", "slide-right", "slide-up", "slide-down", "zoom"];
-var VISIBILITY_TRANSITIONS = ["fade", "slide-up", "slide-down", "scale", "typewriter", "word", "scramble", "redact"];
+var VISIBILITY_TRANSITIONS = ["fade", "slide-up", "slide-down", "scale", "grow", "typewriter", "word", "scramble", "redact"];
 
 // src/utils/script/parsers/navigation.ts
 function parseTransition(ctx, validTypes) {
@@ -972,6 +1064,73 @@ function parseCellTransition(ctx) {
 }
 
 // src/utils/script/parsers/setStatement.ts
+function lookaheadIsIndexLHS(ctx) {
+  const savedPos = ctx.pos;
+  let depth = 0;
+  while (ctx.pos < ctx.tokens.length) {
+    const t = ctx.tokens[ctx.pos];
+    if (t.type === "NEWLINE" || t.type === "EOF" || t.type === "DEDENT") break;
+    if (t.type === "LBRACKET" || t.type === "LBRACE" || t.type === "LPAREN") depth++;
+    else if (t.type === "RBRACKET" || t.type === "RBRACE" || t.type === "RPAREN") {
+      depth--;
+      if (depth === 0) {
+        ctx.pos++;
+        break;
+      }
+    }
+    ctx.pos++;
+  }
+  while (ctx.pos < ctx.tokens.length) {
+    const t = ctx.tokens[ctx.pos];
+    if (t.type === "DOT") {
+      const next = ctx.tokens[ctx.pos + 1];
+      if (next && (next.type === "IDENTIFIER" || next.type === "KEYWORD")) {
+        ctx.pos += 2;
+        continue;
+      }
+      break;
+    }
+    if (t.type === "LBRACKET") {
+      let d = 0;
+      while (ctx.pos < ctx.tokens.length) {
+        const tt = ctx.tokens[ctx.pos];
+        if (tt.type === "LBRACKET" || tt.type === "LBRACE" || tt.type === "LPAREN") d++;
+        else if (tt.type === "RBRACKET" || tt.type === "RBRACE" || tt.type === "RPAREN") {
+          d--;
+          if (d === 0) {
+            ctx.pos++;
+            break;
+          }
+        }
+        ctx.pos++;
+      }
+      continue;
+    }
+    break;
+  }
+  const after = ctx.pos < ctx.tokens.length ? ctx.tokens[ctx.pos] : null;
+  const isStatementEnd = !after || after.type === "NEWLINE" || after.type === "DEDENT" || after.type === "EOF" || after.type === "OPERATOR" && after.value === "/";
+  ctx.pos = savedPos;
+  return !isStatementEnd;
+}
+function parseLhsPath(ctx) {
+  const lhsPath = [];
+  while (ctx.check("LBRACKET") || ctx.check("DOT")) {
+    if (ctx.check("LBRACKET")) {
+      ctx.advance();
+      const expr = parseExpression(ctx);
+      ctx.expect("RBRACKET");
+      lhsPath.push({ type: "index", expr });
+    } else {
+      const next = ctx.peekNext();
+      if (!next || next.type !== "IDENTIFIER" && next.type !== "KEYWORD") break;
+      ctx.advance();
+      ctx.advance();
+      lhsPath.push({ type: "field", name: next.value });
+    }
+  }
+  return lhsPath;
+}
 function parseSet(ctx) {
   ctx.expect("KEYWORD", "set");
   if (ctx.check("KEYWORD") && ctx.peek().value === "all") {
@@ -1129,8 +1288,14 @@ function parseSet(ctx) {
     if (varNameToken.type === "IDENTIFIER" || varNameToken.type === "KEYWORD") {
       ctx.advance();
       const varName = varNameToken.value;
+      const key = `${firstPart}.${varName}`;
+      if (ctx.check("LBRACKET") && lookaheadIsIndexLHS(ctx)) {
+        const lhsPath = parseLhsPath(ctx);
+        const value3 = parseExpression(ctx);
+        return { type: "set", key, value: value3, lhsPath };
+      }
       const value2 = parseExpression(ctx);
-      return { type: "set", key: `${firstPart}.${varName}`, value: value2 };
+      return { type: "set", key, value: value2 };
     }
   }
   if (ctx.check("DOT")) {
@@ -1145,6 +1310,17 @@ function parseSet(ctx) {
         ctx.error(`Expected identifier after '.', got ${token.type}`);
         break;
       }
+    }
+    if (ctx.check("LBRACKET") && lookaheadIsIndexLHS(ctx)) {
+      const lhsPath = parseLhsPath(ctx);
+      const value2 = parseExpression(ctx);
+      return { type: "set", key: parts.join("."), value: value2, lhsPath };
+    }
+    if (ctx.check("LBRACKET") || ctx.check("LBRACE")) {
+      const property = parts.pop();
+      const object = parts.join(".");
+      const value2 = parseExpression(ctx);
+      return { type: "set-property", object, property, value: value2 };
     }
     if (parts.length >= 2) {
       const COMPOUND_PREFIXES = ["color", "image", "gradient", "pattern", "noise", "fill", "keys"];
@@ -1192,6 +1368,11 @@ function parseSet(ctx) {
       return { type: "set-property", object, property, value: value2, ...over && { duration: over.duration, easing: over.easing } };
     }
   }
+  if (ctx.check("LBRACKET") && lookaheadIsIndexLHS(ctx)) {
+    const lhsPath = parseLhsPath(ctx);
+    const value2 = parseExpression(ctx);
+    return { type: "set", key: firstPart, value: value2, lhsPath };
+  }
   const value = parseExpression(ctx);
   return { type: "set", key: firstPart, value };
 }
@@ -1222,7 +1403,12 @@ function parseEndGame(ctx) {
 function parseReturn(ctx) {
   const token = ctx.peek();
   ctx.expect("KEYWORD", "return");
-  return { type: "return", loc: { line: token.line + 1 } };
+  const next = ctx.peek();
+  const stmt = { type: "return", loc: { line: token.line + 1 } };
+  if (next.type !== "NEWLINE" && next.type !== "EOF" && next.type !== "DEDENT" && next.type !== "RBRACE") {
+    stmt.value = parseExpression(ctx);
+  }
+  return stmt;
 }
 function parseBreak(ctx) {
   const token = ctx.peek();
@@ -1337,6 +1523,9 @@ function parseEnable(ctx) {
     case "sensor":
     case "phase":
       parseAffectsConfig(ctx, stmt);
+      break;
+    case "gamepad":
+      parseGamepadConfig(ctx, stmt);
       break;
   }
   return stmt;
@@ -1498,6 +1687,12 @@ function parseZoneConfig(ctx, stmt) {
     }
   }
 }
+function parseGamepadConfig(ctx, stmt) {
+  if ((ctx.check("IDENTIFIER") || ctx.check("KEYWORD")) && ctx.peek().value.toLowerCase() === "index") {
+    ctx.advance();
+    stmt.padIndex = parseExpression(ctx);
+  }
+}
 function parseAffectsConfig(ctx, stmt) {
   if ((ctx.check("IDENTIFIER") || ctx.check("KEYWORD")) && ctx.peek().value.toLowerCase() === "affects") {
     ctx.advance();
@@ -1646,33 +1841,14 @@ function parseShout(ctx) {
       const tagToken = ctx.advance();
       target = `#${tagToken.value}`;
     } else {
-      target = parseIdentifierOrString(ctx);
+      target = parseObjectTarget(ctx);
     }
   }
   const message = parseIdentifierOrString(ctx);
   let params;
   if (ctx.check("LBRACE")) {
     ctx.advance();
-    params = {};
-    while (!ctx.check("RBRACE") && !ctx.check("NEWLINE") && !ctx.isAtEnd()) {
-      const keyToken = ctx.peek();
-      if (keyToken.type !== "IDENTIFIER" && keyToken.type !== "KEYWORD") {
-        break;
-      }
-      ctx.advance();
-      const key = keyToken.value;
-      if (ctx.check("COLON")) {
-        ctx.advance();
-      }
-      const value = parseExpression(ctx);
-      params[key] = value;
-      if (ctx.check("COMMA")) {
-        ctx.advance();
-      }
-    }
-    if (ctx.check("RBRACE")) {
-      ctx.advance();
-    }
+    params = parseBraceBag(ctx);
   }
   let isGlobal = false;
   if ((ctx.check("IDENTIFIER") || ctx.check("KEYWORD")) && ctx.peek().value.toLowerCase() === "global") {
@@ -1689,28 +1865,10 @@ function parsePost(ctx) {
   const startLoc = ctx.loc();
   ctx.expect("KEYWORD", "post");
   const url = parseExpression(ctx);
-  const data = {};
+  let data = {};
   if (ctx.check("LBRACE")) {
     ctx.advance();
-    while (!ctx.check("RBRACE") && !ctx.check("NEWLINE") && !ctx.isAtEnd()) {
-      const keyToken = ctx.peek();
-      if (keyToken.type !== "IDENTIFIER" && keyToken.type !== "KEYWORD") {
-        break;
-      }
-      ctx.advance();
-      const key = keyToken.value;
-      if (ctx.check("COLON")) {
-        ctx.advance();
-      }
-      const value = parseExpression(ctx);
-      data[key] = value;
-      if (ctx.check("COMMA")) {
-        ctx.advance();
-      }
-    }
-    if (ctx.check("RBRACE")) {
-      ctx.advance();
-    }
+    data = parseBraceBag(ctx);
   }
   return { type: "post", url, data, loc: startLoc };
 }
@@ -1740,10 +1898,10 @@ function parseLog(ctx) {
 }
 function parseOpenUrl(ctx) {
   const startLoc = ctx.loc();
-  ctx.expect("KEYWORD", "openUrl");
+  ctx.expect("KEYWORD", "openurl");
   const url = parseExpression(ctx);
   let newTab = false;
-  if (ctx.check("KEYWORD") && ctx.peek().value === "newTab") {
+  if (ctx.check("KEYWORD") && ctx.peek().value === "newtab") {
     ctx.advance();
     newTab = true;
   }
@@ -1777,7 +1935,25 @@ function parseAnimate(ctx) {
       target = "all";
     }
   } else {
-    target = parseIdentifierOrString(ctx);
+    target = parseObjectTarget(ctx);
+  }
+  if (animation === "sway") {
+    const params2 = { amplitude: 5, axis: "rotation" };
+    let periodMs = 1200;
+    if (ctx.check("NUMBER")) {
+      params2.amplitude = parseFloat(ctx.advance().value);
+    }
+    if (ctx.check("NUMBER")) {
+      periodMs = Math.max(50, parseFloat(ctx.advance().value) * 1e3);
+    }
+    if ((ctx.check("IDENTIFIER") || ctx.check("KEYWORD")) && !ctx.isAtEnd()) {
+      const axisVal = ctx.peek().value.toLowerCase();
+      if (axisVal === "rotation" || axisVal === "x" || axisVal === "y") {
+        ctx.advance();
+        params2.axis = axisVal;
+      }
+    }
+    return { type: "animate", animation, target, duration: periodMs, loop: true, params: params2, loc: startLoc };
   }
   let duration = 300;
   let durationExpr;
@@ -1857,7 +2033,7 @@ function parseStopAnimation(ctx) {
       target = "all";
     }
   } else {
-    target = parseIdentifierOrString(ctx);
+    target = parseObjectTarget(ctx);
   }
   let animation;
   let fadeOut;
@@ -1879,6 +2055,64 @@ function parseStopAnimation(ctx) {
   if (fadeOut !== void 0) result.fadeOut = fadeOut;
   return result;
 }
+function parseColorTransform(ctx) {
+  const startLoc = ctx.loc();
+  const opToken = ctx.advance();
+  const op = opToken.value;
+  let target;
+  if (ctx.check("TAG")) {
+    const tagToken = ctx.advance();
+    target = `tag:${tagToken.value}`;
+  } else if (ctx.check("KEYWORD") && ctx.peek().value === "scene") {
+    ctx.advance();
+    target = "scene";
+  } else if (ctx.check("KEYWORD") && ctx.peek().value === "all") {
+    ctx.advance();
+    const typeToken = ctx.peek();
+    if (typeToken.type === "IDENTIFIER" || typeToken.type === "KEYWORD") {
+      ctx.advance();
+      const resolvedType = TYPE_SELECTORS[typeToken.value.toLowerCase()];
+      target = resolvedType ? `all:${resolvedType}` : typeToken.value;
+    } else {
+      target = "all";
+    }
+  } else {
+    target = parseObjectTarget(ctx);
+  }
+  let amount;
+  if (ctx.check("NUMBER")) {
+    amount = parseFloat(ctx.advance().value);
+  }
+  const result = { type: "color-transform", op, target, loc: startLoc };
+  if (amount !== void 0) result.amount = amount;
+  return result;
+}
+function parseInject(ctx) {
+  const startLoc = ctx.loc();
+  ctx.expect("KEYWORD", "inject");
+  const source = ctx.check("TAG") ? `tag:${ctx.advance().value}` : parseObjectTarget(ctx);
+  const relTok = ctx.peek();
+  if (relTok.type !== "IDENTIFIER" && relTok.type !== "KEYWORD") {
+    ctx.error(`Expected 'above' or 'below' after inject source, got ${relTok.type}`);
+    return { type: "inject", source, relation: "above", target: "", loc: startLoc };
+  }
+  const rel = relTok.value;
+  if (rel !== "above" && rel !== "below") {
+    ctx.error(`Expected 'above' or 'below', got '${rel}'`);
+    return { type: "inject", source, relation: "above", target: "", loc: startLoc };
+  }
+  ctx.advance();
+  const relation = rel;
+  const target = ctx.check("TAG") ? `tag:${ctx.advance().value}` : parseObjectTarget(ctx);
+  return { type: "inject", source, relation, target, loc: startLoc };
+}
+function parseClearInject(ctx) {
+  const startLoc = ctx.loc();
+  ctx.expect("KEYWORD", "clear");
+  ctx.expect("KEYWORD", "inject");
+  const source = ctx.check("TAG") ? `tag:${ctx.advance().value}` : parseObjectTarget(ctx);
+  return { type: "clear-inject", source, loc: startLoc };
+}
 function parseActionCall(ctx) {
   ctx.advance();
   const firstToken = ctx.peek();
@@ -1887,6 +2121,8 @@ function parseActionCall(ctx) {
     return { type: "action-call", object: "self", action: "" };
   }
   ctx.advance();
+  let object = "self";
+  let action = firstToken.value;
   if (ctx.peek().type === "DOT") {
     ctx.advance();
     const actionToken = ctx.peek();
@@ -1895,9 +2131,17 @@ function parseActionCall(ctx) {
       return { type: "action-call", object: firstToken.value, action: "" };
     }
     ctx.advance();
-    return { type: "action-call", object: firstToken.value, action: actionToken.value };
+    object = firstToken.value;
+    action = actionToken.value;
   }
-  return { type: "action-call", object: "self", action: firstToken.value };
+  let args;
+  if (ctx.check("LBRACE")) {
+    ctx.advance();
+    args = parseBraceBag(ctx);
+  }
+  const result = { type: "action-call", object, action };
+  if (args && Object.keys(args).length > 0) result.args = args;
+  return result;
 }
 function parseClearGrid(ctx) {
   const startLoc = ctx.loc();
@@ -1922,9 +2166,62 @@ function parseClearGrid(ctx) {
   }
   return { type: "clear-grid", gridName, loc: startLoc };
 }
+var SPAWN_TYPE_KEYWORDS = /* @__PURE__ */ new Set([
+  // Prime types
+  "shape",
+  "text",
+  "line",
+  "grid",
+  "audio",
+  "emitter",
+  "mask",
+  "peg",
+  "viewport",
+  "data",
+  "component",
+  // Shape sub-type aliases (sugar for shape + shapeType)
+  "rect",
+  "rectangle",
+  "circle",
+  "ellipse",
+  "polygon",
+  "path"
+]);
+var SHAPE_SUBTYPE_ALIAS = {
+  rect: "rectangle",
+  rectangle: "rectangle",
+  circle: "circle",
+  ellipse: "ellipse",
+  polygon: "polygon",
+  path: "path"
+};
 function parseSpawn(ctx) {
   const startLoc = ctx.loc();
   ctx.expect("KEYWORD", "spawn");
+  const head = ctx.peek();
+  const isTypeKeyword = (head.type === "IDENTIFIER" || head.type === "KEYWORD") && SPAWN_TYPE_KEYWORDS.has(head.value.toLowerCase());
+  if (isTypeKeyword) {
+    const typeKw = head.value.toLowerCase();
+    ctx.advance();
+    const name = parseIdentifierOrString(ctx);
+    let params2;
+    if (ctx.check("LBRACE")) {
+      ctx.advance();
+      params2 = parseBraceBag(ctx);
+    }
+    const isShapeSubtype = SHAPE_SUBTYPE_ALIAS[typeKw] !== void 0;
+    const result2 = {
+      type: "spawn",
+      templateName: "",
+      // unused in create-from-type mode
+      objectType: isShapeSubtype ? "shape" : typeKw,
+      loc: startLoc
+    };
+    if (isShapeSubtype) result2.shapeSubType = SHAPE_SUBTYPE_ALIAS[typeKw];
+    result2.templateName = name;
+    if (params2 && Object.keys(params2).length > 0) result2.params = params2;
+    return result2;
+  }
   let templateName = parseIdentifierOrString(ctx);
   while (ctx.check("DOT")) {
     ctx.advance();
@@ -1939,36 +2236,85 @@ function parseSpawn(ctx) {
   let anchorName;
   if (ctx.check("KEYWORD") && ctx.peek().value === "at") {
     ctx.advance();
-    anchorName = parseIdentifierOrString(ctx);
+    anchorName = parseObjectTarget(ctx);
   }
   let params;
   if (ctx.check("LBRACE")) {
     ctx.advance();
-    params = {};
-    while (!ctx.check("RBRACE") && !ctx.check("NEWLINE") && !ctx.isAtEnd()) {
-      const keyToken = ctx.peek();
-      if (keyToken.type !== "IDENTIFIER" && keyToken.type !== "KEYWORD") {
-        break;
-      }
-      ctx.advance();
-      const key = keyToken.value;
-      if (ctx.check("COLON")) {
-        ctx.advance();
-      }
-      const value = parseExpression(ctx);
-      params[key] = value;
-      if (ctx.check("COMMA")) {
-        ctx.advance();
-      }
-    }
-    if (ctx.check("RBRACE")) {
-      ctx.advance();
-    }
+    params = parseBraceBag(ctx);
   }
   const result = { type: "spawn", templateName, loc: startLoc };
   if (anchorName) result.anchorName = anchorName;
   if (params && Object.keys(params).length > 0) result.params = params;
   return result;
+}
+function parseDottedPath(ctx) {
+  const head = ctx.peek();
+  if (head.type !== "IDENTIFIER" && head.type !== "KEYWORD") {
+    ctx.error(`Expected identifier, got ${head.type}`);
+    return "";
+  }
+  ctx.advance();
+  const parts = [head.value];
+  while (ctx.check("DOT")) {
+    const next = ctx.peekNext();
+    if (!next || next.type !== "IDENTIFIER" && next.type !== "KEYWORD") break;
+    ctx.advance();
+    ctx.advance();
+    parts.push(next.value);
+  }
+  return parts.join(".");
+}
+function parsePush(ctx) {
+  const startLoc = ctx.loc();
+  ctx.expect("KEYWORD", "push");
+  let position = "end";
+  if (ctx.check("KEYWORD") && ctx.peek().value === "first") {
+    ctx.advance();
+    position = "first";
+  }
+  const target = parseDottedPath(ctx);
+  const value = parseExpression(ctx);
+  return { type: "push", target, position, value, loc: startLoc };
+}
+function parseInsert(ctx) {
+  const startLoc = ctx.loc();
+  ctx.expect("KEYWORD", "insert");
+  const target = parseDottedPath(ctx);
+  ctx.expect("KEYWORD", "at");
+  const index = parseExpression(ctx);
+  const value = parseExpression(ctx);
+  return { type: "push", target, position: "at", index, value, loc: startLoc };
+}
+function parseRemove(ctx) {
+  const startLoc = ctx.loc();
+  ctx.expect("KEYWORD", "remove");
+  const head = ctx.peek();
+  if (head.type !== "IDENTIFIER" && head.type !== "KEYWORD") {
+    ctx.error(`Expected identifier after 'remove', got ${head.type}`);
+    return { type: "remove", target: "", loc: startLoc };
+  }
+  ctx.advance();
+  const parts = [head.value];
+  while (ctx.check("DOT")) {
+    const next = ctx.peekNext();
+    if (!next || next.type !== "IDENTIFIER" && next.type !== "KEYWORD") break;
+    ctx.advance();
+    ctx.advance();
+    parts.push(next.value);
+  }
+  if (ctx.check("LBRACKET")) {
+    ctx.advance();
+    const index = parseExpression(ctx);
+    ctx.expect("RBRACKET");
+    return { type: "remove", target: parts.join("."), index, loc: startLoc };
+  }
+  if (parts.length < 2) {
+    ctx.error(`'remove' requires a path (e.g. 'remove items[0]' or 'remove cfg.foo')`);
+    return { type: "remove", target: parts.join("."), loc: startLoc };
+  }
+  const key = parts.pop();
+  return { type: "remove", target: parts.join("."), key, loc: startLoc };
 }
 function parseDestroy(ctx) {
   const startLoc = ctx.loc();
@@ -2003,7 +2349,7 @@ function parseAnimateGroup(ctx) {
       target = "all";
     }
   } else {
-    target = parseIdentifierOrString(ctx);
+    target = parseObjectTarget(ctx);
   }
   const groupToken = ctx.advance();
   const group = groupToken.value;
@@ -2088,14 +2434,20 @@ function parseStopAnimateGroup(ctx) {
       target = "all";
     }
   } else {
-    target = parseIdentifierOrString(ctx);
+    target = parseObjectTarget(ctx);
   }
   return { type: "stop-animate-group", target, loc: startLoc };
 }
 function parsePlay(ctx) {
   const startLoc = ctx.loc();
   ctx.expect("KEYWORD", "play");
-  const target = parseIdentifierOrString(ctx);
+  let target;
+  if (ctx.check("TAG")) {
+    const tagToken = ctx.advance();
+    target = `tag:${tagToken.value}`;
+  } else {
+    target = parseObjectTarget(ctx);
+  }
   let loop = false;
   let fadeIn;
   while (!ctx.isAtEnd() && !ctx.check("NEWLINE") && !ctx.check("DEDENT") && !ctx.check("RBRACE")) {
@@ -2119,7 +2471,13 @@ function parsePlay(ctx) {
 function parsePause(ctx) {
   const startLoc = ctx.loc();
   ctx.expect("KEYWORD", "pause");
-  const target = parseIdentifierOrString(ctx);
+  let target;
+  if (ctx.check("TAG")) {
+    const tagToken = ctx.advance();
+    target = `tag:${tagToken.value}`;
+  } else {
+    target = parseObjectTarget(ctx);
+  }
   let fadeOut;
   if (!ctx.isAtEnd() && !ctx.check("NEWLINE") && !ctx.check("DEDENT") && !ctx.check("RBRACE")) {
     const next = ctx.peek();
@@ -2151,7 +2509,7 @@ function parseImpulse(ctx) {
       target = "all";
     }
   } else {
-    target = parseIdentifierOrString(ctx);
+    target = parseObjectTarget(ctx);
   }
   const vx = parseUnary(ctx);
   const vy = parseUnary(ctx);
@@ -2175,7 +2533,7 @@ function parseJump(ctx) {
       target = "all";
     }
   } else {
-    target = parseIdentifierOrString(ctx);
+    target = parseObjectTarget(ctx);
   }
   let height;
   if (ctx.check("IDENTIFIER") && ctx.peek().value.toLowerCase() === "height") {
@@ -2235,7 +2593,7 @@ function parseScreenshake(ctx) {
 function parseReveal(ctx) {
   const startLoc = ctx.loc();
   ctx.expect("KEYWORD", "reveal");
-  const target = parseIdentifierOrString(ctx);
+  const target = parseObjectTarget(ctx);
   const x = parseExpression(ctx);
   const y = parseExpression(ctx);
   let radius;
@@ -2251,10 +2609,10 @@ function parseReveal(ctx) {
 function parseRehide(ctx) {
   const startLoc = ctx.loc();
   ctx.expect("KEYWORD", "rehide");
-  const target = parseIdentifierOrString(ctx);
+  const target = parseObjectTarget(ctx);
   let revealer;
   if (!ctx.isAtEnd() && !ctx.check("NEWLINE") && !ctx.check("DEDENT") && !ctx.check("RBRACE")) {
-    revealer = parseIdentifierOrString(ctx);
+    revealer = parseObjectTarget(ctx);
   }
   const result = { type: "rehide", target, loc: startLoc };
   if (revealer) result.revealer = revealer;
@@ -2278,9 +2636,14 @@ function parseTransport(ctx) {
       target = "all";
     }
   } else {
-    target = parseIdentifierOrString(ctx);
+    target = parseObjectTarget(ctx);
   }
   ctx.expect("KEYWORD", "to");
+  let targetMode;
+  if (ctx.check("KEYWORD") && ctx.peek().value === "cell") {
+    ctx.advance();
+    targetMode = "cell";
+  }
   const x = parseExpression(ctx);
   const y = parseExpression(ctx);
   ctx.expect("KEYWORD", "over");
@@ -2294,6 +2657,7 @@ function parseTransport(ctx) {
   }
   const stmt = { type: "transport", target, x, y, duration, loc: startLoc };
   if (easing) stmt.easing = easing;
+  if (targetMode) stmt.targetMode = targetMode;
   return stmt;
 }
 function parseMoveTo(ctx) {
@@ -2314,7 +2678,7 @@ function parseMoveTo(ctx) {
       target = "all";
     }
   } else {
-    target = parseIdentifierOrString(ctx);
+    target = parseObjectTarget(ctx);
   }
   const next = ctx.peek();
   const isEndToken = (t) => !t || t.type === "NEWLINE" || t.type === "DEDENT" || t.type === "EOF" || t.type === "RBRACE";
@@ -2343,7 +2707,7 @@ function parsePress(ctx) {
   let target;
   if ((ctx.check("KEYWORD") || ctx.check("IDENTIFIER")) && ctx.peek().value === "on") {
     ctx.advance();
-    target = parseIdentifierOrString(ctx);
+    target = parseObjectTarget(ctx);
   }
   const result = { type: "press", key, loc: startLoc };
   if (target) result.target = target;
@@ -2356,7 +2720,7 @@ function parseRelease(ctx) {
   let target;
   if ((ctx.check("KEYWORD") || ctx.check("IDENTIFIER")) && ctx.peek().value === "on") {
     ctx.advance();
-    target = parseIdentifierOrString(ctx);
+    target = parseObjectTarget(ctx);
   }
   const result = { type: "release", key, loc: startLoc };
   if (target) result.target = target;
@@ -2380,7 +2744,7 @@ function parseAddTag(ctx) {
       target = "all";
     }
   } else {
-    target = parseIdentifierOrString(ctx);
+    target = parseObjectTarget(ctx);
   }
   if (!ctx.check("TAG")) {
     ctx.error("Expected #tag after target");
@@ -2407,7 +2771,7 @@ function parseRemoveTag(ctx) {
       target = "all";
     }
   } else {
-    target = parseIdentifierOrString(ctx);
+    target = parseObjectTarget(ctx);
   }
   if (!ctx.check("TAG")) {
     ctx.error("Expected #tag after target");
@@ -2494,7 +2858,7 @@ var Parser = class {
         return this.parseRepeat();
       case "log":
         return this.parseLog();
-      case "openUrl":
+      case "openurl":
         return this.parseOpenUrl();
       case "shake":
       case "vibrate":
@@ -2503,7 +2867,17 @@ var Parser = class {
       case "bounce":
       case "spin":
       case "glow":
+      case "sway":
         return this.parseAnimate();
+      case "saturate":
+      case "desaturate":
+      case "huerotate":
+      case "lighten":
+      case "darken":
+      case "invert":
+        return this.parseColorTransform();
+      case "inject":
+        return this.parseInject();
       case "screenshake":
         return this.parseScreenshake();
       case "animate":
@@ -2518,11 +2892,20 @@ var Parser = class {
         }
         return this.parseStopAnimation();
       case "clear":
+        if (this.pos + 1 < this.tokens.length && this.tokens[this.pos + 1].value === "inject") {
+          return this.parseClearInject();
+        }
         return this.parseClearGrid();
       case "spawn":
         return this.parseSpawn();
       case "destroy":
         return this.parseDestroy();
+      case "push":
+        return this.parsePush();
+      case "insert":
+        return this.parseInsert();
+      case "remove":
+        return this.parseRemove();
       case "copy":
         return this.parseCopy();
       case "play":
@@ -2664,6 +3047,15 @@ var Parser = class {
   parseStopAnimation() {
     return parseStopAnimation(this);
   }
+  parseColorTransform() {
+    return parseColorTransform(this);
+  }
+  parseInject() {
+    return parseInject(this);
+  }
+  parseClearInject() {
+    return parseClearInject(this);
+  }
   parseAnimateGroup() {
     return parseAnimateGroup(this);
   }
@@ -2678,6 +3070,15 @@ var Parser = class {
   }
   parseDestroy() {
     return parseDestroy(this);
+  }
+  parsePush() {
+    return parsePush(this);
+  }
+  parseInsert() {
+    return parseInsert(this);
+  }
+  parseRemove() {
+    return parseRemove(this);
   }
   parseCopy() {
     return parseCopy(this);
@@ -2907,6 +3308,10 @@ function parseSingleEvent(token) {
     return { event: "onDrag" };
   } else if (tokenLower === "ondragend") {
     return { event: "onDragEnd" };
+  } else if (tokenLower === "onsubmit") {
+    return { event: "onSubmit" };
+  } else if (tokenLower === "ondefocus") {
+    return { event: "onDefocus" };
   }
   return null;
 }
@@ -2973,43 +3378,208 @@ function parseEventLine(line) {
   }
   return { events: parsedEvents, inlineAction, blockStyle };
 }
+function findMatchingBrace(text, startIdx) {
+  let depth = 0;
+  let inQuote = false;
+  let quoteChar = "";
+  for (let i = startIdx; i < text.length; i++) {
+    const c = text[i];
+    if (inQuote) {
+      if (c === quoteChar) inQuote = false;
+      continue;
+    }
+    if (c === '"' || c === "'") {
+      inQuote = true;
+      quoteChar = c;
+      continue;
+    }
+    if (c === "{") depth++;
+    else if (c === "}") {
+      depth--;
+      if (depth === 0) return i;
+    }
+  }
+  return -1;
+}
+function parseActionParams(raw) {
+  const tokens = tokenize(raw);
+  const parser = new Parser(tokens);
+  const params = [];
+  while (!parser.isAtEnd()) {
+    while (parser.check("NEWLINE") || parser.check("COMMA")) parser.advance();
+    if (parser.isAtEnd()) break;
+    const tok = parser.peek();
+    if (tok.type !== "IDENTIFIER" && tok.type !== "KEYWORD") break;
+    parser.advance();
+    const name = tok.value;
+    let defaultExpr;
+    if (parser.check("COLON")) {
+      parser.advance();
+      defaultExpr = parseExpression(parser);
+    }
+    const param = { name };
+    if (defaultExpr) param.default = defaultExpr;
+    params.push(param);
+  }
+  return params;
+}
 function parseActionLine(line) {
   const trimmed = line.trim();
   if (!trimmed.toLowerCase().startsWith("action ")) {
     return null;
   }
-  const colonIdx = trimmed.indexOf(":");
-  const braceIdx = trimmed.indexOf("{");
-  let delimiterIdx = -1;
-  let blockStyle = "colon";
-  if (braceIdx !== -1 && (colonIdx === -1 || braceIdx < colonIdx)) {
-    delimiterIdx = braceIdx;
-    blockStyle = "brace";
-  } else if (colonIdx !== -1) {
-    delimiterIdx = colonIdx;
+  const rest = trimmed.slice(7);
+  let nameEnd = 0;
+  while (nameEnd < rest.length) {
+    const c = rest[nameEnd];
+    if (c === " " || c === "	" || c === "{" || c === ":") break;
+    nameEnd++;
+  }
+  const name = rest.slice(0, nameEnd).trim();
+  if (!name) return null;
+  let cursor = nameEnd;
+  while (cursor < rest.length && (rest[cursor] === " " || rest[cursor] === "	")) cursor++;
+  let params;
+  if (rest[cursor] === "{") {
+    const matched = findMatchingBrace(rest, cursor);
+    if (matched !== -1) {
+      let after = matched + 1;
+      while (after < rest.length && (rest[after] === " " || rest[after] === "	")) after++;
+      const nextChar = rest[after];
+      if (nextChar === ":" || nextChar === "{") {
+        const paramsRaw = rest.slice(cursor + 1, matched);
+        params = parseActionParams(paramsRaw);
+        cursor = after;
+      }
+    }
+  }
+  if (cursor >= rest.length) return null;
+  const delimChar = rest[cursor];
+  let blockStyle;
+  if (delimChar === ":") {
     blockStyle = "colon";
-  }
-  if (delimiterIdx === -1) {
+  } else if (delimChar === "{") {
+    blockStyle = "brace";
+  } else {
     return null;
   }
-  const name = trimmed.slice(7, delimiterIdx).trim();
-  if (!name) {
-    return null;
-  }
-  let inlineStatements = trimmed.slice(delimiterIdx + 1).trim();
+  let inlineStatements = rest.slice(cursor + 1).trim();
   if (blockStyle === "brace" && inlineStatements.endsWith("}")) {
     inlineStatements = inlineStatements.slice(0, -1).trim();
   }
-  return { name, inlineStatements, blockStyle };
+  const result = { name, inlineStatements, blockStyle };
+  if (params) result.params = params;
+  return result;
 }
+function parseFunctionLine(line) {
+  const trimmed = line.trim();
+  if (!trimmed.toLowerCase().startsWith("function ")) return null;
+  const rest = trimmed.slice(9);
+  let nameEnd = 0;
+  while (nameEnd < rest.length) {
+    const c = rest[nameEnd];
+    if (c === " " || c === "	" || c === "(") break;
+    nameEnd++;
+  }
+  const name = rest.slice(0, nameEnd).trim();
+  if (!name) return null;
+  let cursor = nameEnd;
+  while (cursor < rest.length && (rest[cursor] === " " || rest[cursor] === "	")) cursor++;
+  if (rest[cursor] !== "(") return null;
+  let parenDepth = 0;
+  let parenEnd = -1;
+  let inQuote = false;
+  let quoteChar = "";
+  for (let i = cursor; i < rest.length; i++) {
+    const c = rest[i];
+    if (inQuote) {
+      if (c === quoteChar) inQuote = false;
+      continue;
+    }
+    if (c === '"' || c === "'") {
+      inQuote = true;
+      quoteChar = c;
+      continue;
+    }
+    if (c === "(") parenDepth++;
+    else if (c === ")") {
+      parenDepth--;
+      if (parenDepth === 0) {
+        parenEnd = i;
+        break;
+      }
+    }
+  }
+  if (parenEnd === -1) return null;
+  const paramsRaw = rest.slice(cursor + 1, parenEnd).trim();
+  const params = paramsRaw ? paramsRaw.split(",").map((p) => p.trim()).filter((p) => p.length > 0) : [];
+  cursor = parenEnd + 1;
+  while (cursor < rest.length && (rest[cursor] === " " || rest[cursor] === "	")) cursor++;
+  if (cursor >= rest.length) return null;
+  const delimChar = rest[cursor];
+  let blockStyle;
+  if (delimChar === ":") blockStyle = "colon";
+  else if (delimChar === "{") blockStyle = "brace";
+  else return null;
+  let inlineStatements = rest.slice(cursor + 1).trim();
+  if (blockStyle === "brace" && inlineStatements.endsWith("}")) {
+    inlineStatements = inlineStatements.slice(0, -1).trim();
+  }
+  return { name, params, inlineStatements, blockStyle };
+}
+var FUNCTION_ALLOWED_STATEMENTS = /* @__PURE__ */ new Set([
+  "set",
+  "if",
+  "return"
+]);
+function validateFunctionBody(stmts, startLine) {
+  const errs = [];
+  const walk = (list) => {
+    for (const s of list) {
+      if (!FUNCTION_ALLOWED_STATEMENTS.has(s.type)) {
+        errs.push({
+          line: (s.loc?.line ?? startLine + 1) - 1,
+          column: 0,
+          message: `'${s.type}' is not allowed inside a function body. Functions are pure (sync-only): use only set/if/return. For side effects (wait, play, spawn, shout, etc.) use 'action' instead.`
+        });
+        continue;
+      }
+      if (s.type === "if") {
+        const ifs = s;
+        walk(ifs.then);
+        if (ifs.else) walk(ifs.else);
+      }
+    }
+  };
+  walk(stmts);
+  return errs;
+}
+var PARSE_CACHE_MAX = 1e3;
+var parseCache = /* @__PURE__ */ new Map();
 function parseEventScript(source) {
+  const cached = parseCache.get(source);
+  if (cached) return cached;
+  const result = parseEventScriptUncached(source);
+  if (parseCache.size >= PARSE_CACHE_MAX) {
+    let toDrop = parseCache.size - PARSE_CACHE_MAX / 2;
+    for (const k of parseCache.keys()) {
+      if (toDrop-- <= 0) break;
+      parseCache.delete(k);
+    }
+  }
+  parseCache.set(source, result);
+  return result;
+}
+function parseEventScriptUncached(source) {
   const lines = source.split("\n");
   const events = [];
   const actions = [];
+  const functions = [];
   const errors = [];
   let currentBlock = null;
   let currentStartLine = 0;
   let braceDepth = 0;
+  let sawAnyBlock = false;
   const normalizeBlock = (startLine, endLine) => {
     const blockLines = lines.slice(startLine, endLine);
     let minIndent = Infinity;
@@ -3036,7 +3606,16 @@ function parseEventScript(source) {
         events.push({ event: evt.event, key: evt.key, message: evt.message, from: evt.from, direction: evt.direction, statements: result.statements });
       }
     } else if (currentBlock.type === "action") {
-      actions.push({ name: currentBlock.name, statements: result.statements });
+      const action = { name: currentBlock.name, statements: result.statements };
+      if (currentBlock.params) action.params = currentBlock.params;
+      actions.push(action);
+    } else if (currentBlock.type === "function") {
+      const bodyErrors = validateFunctionBody(result.statements, currentStartLine);
+      if (bodyErrors.length > 0) {
+        errors.push(...bodyErrors);
+      } else {
+        functions.push({ name: currentBlock.name, params: currentBlock.params, statements: result.statements });
+      }
     }
     errors.push(...result.errors.map((e) => ({ ...e, line: e.line + currentStartLine })));
     currentBlock = null;
@@ -3074,15 +3653,19 @@ function parseEventScript(source) {
     }
     const actionParsed = parseActionLine(line);
     if (actionParsed) {
+      sawAnyBlock = true;
       closeCurrentBlock(i);
       const isSingleLine = actionParsed.blockStyle === "brace" ? line.trim().endsWith("}") : !!actionParsed.inlineStatements;
       if (isSingleLine && actionParsed.inlineStatements) {
         const result = parseScript(actionParsed.inlineStatements);
-        actions.push({ name: actionParsed.name, statements: result.statements });
+        const action = { name: actionParsed.name, statements: result.statements };
+        if (actionParsed.params) action.params = actionParsed.params;
+        actions.push(action);
         errors.push(...result.errors);
         currentBlock = null;
       } else {
         currentBlock = { type: "action", name: actionParsed.name, blockStyle: actionParsed.blockStyle };
+        if (actionParsed.params) currentBlock.params = actionParsed.params;
         currentStartLine = i + 1;
         if (actionParsed.blockStyle === "brace") {
           braceDepth = 1;
@@ -3090,8 +3673,33 @@ function parseEventScript(source) {
       }
       continue;
     }
+    const functionParsed = parseFunctionLine(line);
+    if (functionParsed) {
+      sawAnyBlock = true;
+      closeCurrentBlock(i);
+      const isSingleLine = functionParsed.blockStyle === "brace" ? line.trim().endsWith("}") : !!functionParsed.inlineStatements;
+      if (isSingleLine && functionParsed.inlineStatements) {
+        const result = parseScript(functionParsed.inlineStatements);
+        const bodyErrors = validateFunctionBody(result.statements, i);
+        if (bodyErrors.length > 0) {
+          errors.push(...bodyErrors);
+        } else {
+          functions.push({ name: functionParsed.name, params: functionParsed.params, statements: result.statements });
+        }
+        errors.push(...result.errors);
+        currentBlock = null;
+      } else {
+        currentBlock = { type: "function", name: functionParsed.name, params: functionParsed.params, blockStyle: functionParsed.blockStyle };
+        currentStartLine = i + 1;
+        if (functionParsed.blockStyle === "brace") {
+          braceDepth = 1;
+        }
+      }
+      continue;
+    }
     const eventParsed = parseEventLine(line);
     if (eventParsed && eventParsed.events.length > 0) {
+      sawAnyBlock = true;
       closeCurrentBlock(i);
       const isSingleLine = eventParsed.blockStyle === "brace" ? line.trim().endsWith("}") : !!eventParsed.inlineAction;
       if (isSingleLine && eventParsed.inlineAction) {
@@ -3112,14 +3720,14 @@ function parseEventScript(source) {
     }
   }
   closeCurrentBlock(lines.length);
-  if (events.length === 0 && actions.length === 0) {
+  if (!sawAnyBlock) {
     const result = parseScript(source);
     if (result.statements.length > 0) {
       events.push({ event: "onEnter", statements: result.statements });
     }
     errors.push(...result.errors);
   }
-  return { events, actions, errors };
+  return { events, actions, functions, errors };
 }
 
 // src/types/scriptRegistry.ts
@@ -3156,8 +3764,8 @@ onClick:
   },
   onKeyDown: {
     description: "When key pressed",
-    longDescription: "Triggers when a keyboard key is pressed while in this cell. Can optionally filter by specific key. Also fires for gamepad button presses \u2014 each button triggers both a gamepad-specific name and a keyboard equivalent.",
-    validFor: ["cell"],
+    longDescription: "Triggers when a keyboard key is pressed while in this cell. Can optionally filter by specific key. Also fires for gamepad button presses \u2014 each button triggers both a gamepad-specific name and a keyboard equivalent. Fires on the cell script and on every non-template object in the cell; there is no focus arbitration, so every matching handler runs on each press.",
+    validFor: ["cell", "object"],
     example: `onKeyDown "space":
   show HelpPanel
 
@@ -3170,8 +3778,8 @@ onKeyDown:
   },
   onKeyUp: {
     description: "When key released",
-    longDescription: "Triggers when a keyboard key is released. Can optionally filter by specific key. Often paired with onKeyDown for toggle behaviors. Also fires for gamepad button releases.",
-    validFor: ["cell"],
+    longDescription: "Triggers when a keyboard key is released. Can optionally filter by specific key. Often paired with onKeyDown for toggle behaviors. Also fires for gamepad button releases. Fires on the cell script and on every non-template object in the cell; there is no focus arbitration, so every matching handler runs on each release.",
+    validFor: ["cell", "object"],
     example: `onKeyUp "escape":
   goto "MainMenu"`,
     parameters: [
@@ -3264,31 +3872,31 @@ onMessageFrom Controller "GAME_OVER":
   },
   onDragStart: {
     description: "When drag begins",
-    longDescription: "Triggers when the user starts dragging this object. Fires after the pointer has moved beyond the drag threshold (5 pixels). Works on any object with this script \u2014 if draggable is also enabled, the object moves with the pointer; otherwise only events fire (useful for slingshot, joystick, swipe gestures).",
-    validFor: ["object"],
+    longDescription: "Triggers when a drag gesture begins. On an object: fires when the user starts dragging that object (with draggable, the object follows the pointer; otherwise only events fire \u2014 useful for slingshot/joystick/swipe). On a cell: fires when a drag begins on empty canvas, or on a non-draggable object that has no drag handlers \u2014 useful for marquee selection, lasso, slice lines, swipe controls. Fires once after the pointer moves beyond the drag threshold.",
+    validFor: ["cell", "object"],
     example: `onDragStart:
   set opacity 0.7
   set self.z 1000`,
-    notes: "Fires once when drag motion exceeds threshold. Add draggable for auto-move."
+    notes: "Fires once when drag motion exceeds threshold. dragStartX/dragStartY and clickX/clickY available; on objects, add draggable for auto-move."
   },
   onDrag: {
     description: "While being dragged",
-    longDescription: "Triggers continuously while this object is being dragged. Fires on each pointer move during drag. Use clickX/clickY to read the pointer position. If draggable is enabled, the object follows the pointer; otherwise the object stays put and only events fire.",
-    validFor: ["object"],
+    longDescription: "Triggers continuously while a drag gesture is in progress. On an object: fires on each pointer move during an object drag (draggable objects follow the pointer; non-draggable stay put). On a cell: fires on each pointer move during a cell-scope drag (canvas gesture). Use clickX/clickY for current pointer position, dragStartX/dragStartY for the drag origin.",
+    validFor: ["cell", "object"],
     example: `onDrag:
   if self.x < 0:
     set self.x 0`,
-    notes: "Fires repeatedly during drag motion. clickX/clickY available."
+    notes: "Fires repeatedly during drag motion. clickX/clickY, dragStartX/dragStartY, dragDuration available."
   },
   onDragEnd: {
     description: "When drag ends",
-    longDescription: "Triggers when the user releases this object after dragging. Useful for snapping to position, validating drop location, launching with impulse, or resetting visual state.",
-    validFor: ["object"],
+    longDescription: "Triggers when the user releases after a drag gesture. On an object: useful for snapping, validating drop targets, launching with impulse. On a cell: useful for committing a marquee selection, slicing along the drawn line, or detecting a swipe (combine dragStartX/Y with clickX/Y and dragDuration).",
+    validFor: ["cell", "object"],
     example: `onDragEnd:
   set opacity 1
   if self.x > 0.5:
     set self.x 0.5`,
-    notes: "Fires once when pointer is released after dragging."
+    notes: "Fires once when pointer is released. clickX/clickY are the release position; dragStartX/dragStartY are where the drag began; dragDuration is total ms."
   },
   onMove: {
     description: "When movement direction changes",
@@ -3503,7 +4111,7 @@ wait movement self`,
   },
   set: {
     description: "Set variable or property",
-    longDescription: "Sets a variable value or an object property. Variables can be scoped (session, game, local). Object properties change visual appearance at runtime. Use `over DURATION` for smooth tweening. When setting `state`, the state's delta is applied as a composable patch (only the changed properties are written). Optional spatial modifiers filter which properties are applied.",
+    longDescription: "Sets a variable value or an object property. Variables can be scoped (session, game, local). Object properties change visual appearance at runtime. Use `over DURATION` for smooth tweening. When setting `state`, the state's delta is applied as a composable patch (only the changed properties are written). Optional spatial modifiers filter which properties are applied.\n\nStructured-data writes (Phase 2 of DATA prime feature):\n- Array literal value: `set var [1, 2, 3]`, `set Inventory.value [...]`\n- Map literal value: `set var {a: 1, b: 2}`, `set Settings.value {...}`\n- Indexed write: `set var[i] x`, `set Data.value[i].field x` \u2014 auto-grows arrays with `null` on sparse writes (`set arr[5] x` on a length-3 array fills indices 3 and 4 with null).\n- Dotted write into a nested map: `set Settings.value.weather.wind.gust 99` \u2014 drills into the nested structure and sets the leaf, leaving siblings intact.",
     example: `set score 100
 set game.highScore 999
 set Button1.opacity 0.5
@@ -3516,7 +4124,11 @@ set self.state RED position over 300 ease-out cw
 set self.state BLUE none
 set self.state BLUE position rotate
 set self.state BLUE offset
-set self.state next`,
+set self.state next
+set inv [{name: "potion", count: 3}, {name: "key", count: 1}]
+set cfg {alt: 30000, fuel: 100}
+set inv[0].count 99
+set Settings.value.weather.wind.gust 5`,
     parameters: [
       { name: "target", type: "string", description: "Variable name or Object.property" },
       { name: "value", type: "any", description: "Value to set (number, string, boolean, or expression)" },
@@ -3840,6 +4452,19 @@ glow self 1500 loop "#ff0000"`,
       { name: "color", type: "string", description: "Glow color (default: object glowColor or white)", optional: true }
     ]
   },
+  sway: {
+    description: "Ambient continuous oscillation",
+    longDescription: "Subtle continuous wobble around the object's pivot \u2014 leaves in a breeze, hanging signs, idle creatures. Always loops; per-instance phase offset is derived from the object id so a tagged group doesn't move in lockstep. Argument order is `amplitude period [axis]` (period in seconds), distinct from other animations. Calling `sway` again on the same object replaces the prior sway. Stop with `stop self sway`.",
+    example: `sway #leaves 5 1.2 rotation     // \xB15\xB0, 1.2s period
+sway Sign 3 0.8 y               // \xB13px vertical drift
+sway Plant 2 1.5                // axis defaults to rotation`,
+    parameters: [
+      { name: "target", type: "string", description: "Object name, #tag, or all type" },
+      { name: "amplitude", type: "number", description: "Swing magnitude \u2014 degrees for rotation, pixels for x / y (default 5)", optional: true },
+      { name: "period", type: "number", description: "Cycle time in seconds (default 1.2)", optional: true },
+      { name: "axis", type: "string", description: '"rotation" (default), "x", or "y"', optional: true }
+    ]
+  },
   screenshake: {
     description: "Screen shake effect",
     longDescription: "Shakes the entire camera/viewport. Useful for impact, explosions, earthquakes. Supports intensity range (e.g., `1-5`) for ramping effects. Non-looping shakes naturally damp to zero. `stop screenshake` to stop.",
@@ -3852,6 +4477,98 @@ stop screenshake`,
       { name: "duration", type: "number", description: "Duration in ms (default 300)" },
       { name: "intensity", type: "number", description: "Shake intensity or range A-B (default 3)", optional: true },
       { name: "loop", type: "keyword", description: "Repeat indefinitely", optional: true }
+    ]
+  },
+  saturate: {
+    description: "Increase color saturation",
+    longDescription: "Boosts saturation of the target object's colors \u2014 applies to fillLayers (color + gradient stops), strokeColor, and textColor. Amount is in HSB units (0\u2013100, default 20). Acts on the live object; persists like any property change. Works on a single object, #tag, or `all <type>`.",
+    example: `saturate self
+saturate Logo 40
+saturate #leaves 25
+saturate all shape 30`,
+    parameters: [
+      { name: "target", type: "string", description: "Object name, self, #tag, all type, or `scene` for a scene-wide CSS filter" },
+      { name: "amount", type: "number", description: "Saturation increase 0\u2013100 (default 20)", optional: true }
+    ]
+  },
+  desaturate: {
+    description: "Reduce color saturation",
+    longDescription: "Reduces saturation of the target's colors \u2014 fillLayers (color + gradient stops), strokeColor, textColor. Amount is in HSB units (0\u2013100, default 20). Useful for grayed-out / disabled looks or atmospheric fades. With target `scene`, applies a CSS grayscale filter to the entire viewport (default 100, 0 clears).",
+    example: `desaturate self
+desaturate Logo 40
+desaturate #defeated 60
+desaturate scene 100   // entire scene to b&w
+desaturate scene 0     // restore color`,
+    parameters: [
+      { name: "target", type: "string", description: "Object name, self, #tag, all type, or `scene` for a scene-wide CSS filter" },
+      { name: "amount", type: "number", description: "Saturation decrease 0\u2013100 (default 20)", optional: true }
+    ]
+  },
+  huerotate: {
+    description: "Rotate hue by degrees",
+    longDescription: "Rotates the hue of the target's colors around the color wheel \u2014 fillLayers (color + gradient stops), strokeColor, textColor. Amount is in degrees (default 30). Negative values rotate the other way.",
+    example: `huerotate self
+huerotate Logo 90
+huerotate #leaves -45
+huerotate all shape 180`,
+    parameters: [
+      { name: "target", type: "string", description: "Object name, self, #tag, all type, or `scene` for a scene-wide CSS filter" },
+      { name: "degrees", type: "number", description: "Hue rotation in degrees (default 30)", optional: true }
+    ]
+  },
+  lighten: {
+    description: "Lighten colors",
+    longDescription: "Brightens the target's colors \u2014 fillLayers (color + gradient stops), strokeColor, textColor. Amount is in HSB units (0\u2013100, default 20). Stack calls to ramp toward white.",
+    example: `lighten self
+lighten Knob 15
+lighten #ui 30`,
+    parameters: [
+      { name: "target", type: "string", description: "Object name, self, #tag, all type, or `scene` for a scene-wide CSS filter" },
+      { name: "amount", type: "number", description: "Brightness increase 0\u2013100 (default 20)", optional: true }
+    ]
+  },
+  darken: {
+    description: "Darken colors",
+    longDescription: "Darkens the target's colors \u2014 fillLayers (color + gradient stops), strokeColor, textColor. Amount is in HSB units (0\u2013100, default 20). Stack calls to ramp toward black.",
+    example: `darken self
+darken Knob 20
+darken #shadows 40`,
+    parameters: [
+      { name: "target", type: "string", description: "Object name, self, #tag, all type, or `scene` for a scene-wide CSS filter" },
+      { name: "amount", type: "number", description: "Brightness decrease 0\u2013100 (default 20)", optional: true }
+    ]
+  },
+  invert: {
+    description: "Invert colors",
+    longDescription: "Inverts the target's colors \u2014 fillLayers (color + gradient stops), strokeColor, textColor. No amount; each color is flipped to its complement.",
+    example: `invert self
+invert Logo
+invert all shape`,
+    parameters: [
+      { name: "target", type: "string", description: "Object name, self, #tag, all type, or `scene` for a scene-wide CSS filter" }
+    ]
+  },
+  inject: {
+    description: "Render an object at a foreign slot",
+    longDescription: "Renders the source object just above or below the target \u2014 even when the two are owned by different components. Logical ownership, transform cascade, scripts, and lifecycle are unaffected; only the position of the draw call changes. Use to interleave a child of one component with the children of another (e.g. a tree splitting a player into front/back halves) without re-parenting. Pair with `clear inject Source` to revert. One active anchor per source \u2014 repeated inject replaces the previous.",
+    example: `inject Player above Tree
+inject self below Y
+inject #darts above Bullseye`,
+    parameters: [
+      { name: "source", type: "string", description: "Source \u2014 name, self, other, or #tag (tag form applies to every matching object)" },
+      { name: "relation", type: "keyword", description: "`above` or `below` \u2014 render order relative to the target" },
+      { name: "target", type: "string", description: "Target \u2014 name, self, other, or #tag (tag form uses the first matching object)" }
+    ],
+    notes: "Self-injection is silently ignored. Stale anchors (target deleted) silently fall back to authored render. See docs/architecture/34-injection.md."
+  },
+  "clear inject": {
+    description: "Remove an injection anchor",
+    longDescription: "Clears the source's injection field, restoring its authored render position. Inverse of `inject`.",
+    example: `clear inject Player
+clear inject self
+clear inject #darts`,
+    parameters: [
+      { name: "source", type: "string", description: "Source \u2014 name, self, other, or #tag" }
     ]
   },
   stop: {
@@ -3868,23 +4585,25 @@ stop Music fadeOut 2000`,
   },
   play: {
     description: "Play audio",
-    longDescription: "Starts playback on an audio object. Optionally loop continuously. Use fadeIn to gradually ramp volume from silence. If audio was paused, resumes from the paused position.",
+    longDescription: "Starts playback on an audio object. Optionally loop continuously. Use fadeIn to gradually ramp volume from silence. If audio was paused, resumes from the paused position. With #tag, fans out to every audio object carrying the tag.",
     example: `play Music
 play SoundEffect loop
-play Music fadeIn 2000`,
+play Music fadeIn 2000
+play #music fadeIn 1000`,
     parameters: [
-      { name: "target", type: "string", description: "Audio object name" },
+      { name: "target", type: "string", description: "Audio object name or #tag" },
       { name: "loop", type: "keyword", description: "Loop playback continuously", optional: true },
       { name: "fadeIn", type: "number", description: "Fade in duration in milliseconds", optional: true }
     ]
   },
   pause: {
     description: "Pause audio",
-    longDescription: "Pauses playback on an audio object. Playback position is preserved and can be resumed with play. Use fadeOut to gradually ramp volume to silence before pausing.",
+    longDescription: "Pauses playback on an audio object. Playback position is preserved and can be resumed with play. Use fadeOut to gradually ramp volume to silence before pausing. With #tag, fans out to every audio object carrying the tag.",
     example: `pause Music
-pause Music fadeOut 1000`,
+pause Music fadeOut 1000
+pause #music fadeOut 500`,
     parameters: [
-      { name: "target", type: "string", description: "Audio object name" },
+      { name: "target", type: "string", description: "Audio object name or #tag" },
       { name: "fadeOut", type: "number", description: "Fade out duration in milliseconds", optional: true }
     ]
   },
@@ -3999,21 +4718,51 @@ first #enemies where health <= 0:
     ],
     notes: "The matched object is available as `item` inside the block."
   },
+  "function (custom)": {
+    description: "Define pure custom function",
+    longDescription: "Defines a pure (sync, side-effect-free) function callable inline in expressions. Functions take positional params, return a value with `return expr`, and live cell-scoped (define on any object or the cell script). Bodies allow only `set` (writes to a function-local frame), `if`/`else`, and `return` \u2014 anything that pauses or affects the world (`wait`, `play`, `spawn`, `shout`, `transport`, `goto`, etc.) is rejected at parse time. Use `action` for that. Reads inside a function fall through to globals (so functions can read live state) but writes never escape. Recursion is allowed; depth is capped at 50 to prevent runaway loops.",
+    example: `// Define on any object:
+function distance(ax, ay, bx, by):
+  return sqrt((bx - ax) * (bx - ax) + (by - ay) * (by - ay))
+
+function clamp(x, lo, hi):
+  if x < lo:
+    return lo
+  if x > hi:
+    return hi
+  return x
+
+// Call inline in any expression:
+set d distance(HAB.x, HAB.y, Goose.x, Goose.y)
+if distance(HAB.x, HAB.y, Goose.x, Goose.y) < 0.2:
+  shout "TOO_CLOSE"
+set health clamp(health + heal, 0, 100)`,
+    parameters: [
+      { name: "name", type: "string", description: "Function name (no spaces). User functions never override built-ins (`random`, `floor`, `cos`, etc.) \u2014 built-ins win." },
+      { name: "params", type: "keywords", description: "Parens-positional: `(a, b, c)`. Bare names only \u2014 call with positional args: `name(arg1, arg2)`." }
+    ],
+    notes: "Functions cannot pause or have side effects. Use `action` (statement-form, called with `do`) when you need wait/play/spawn/shout/etc. Locals declared via `set` inside the body never escape \u2014 globals stay clean. No `return` \u21D2 result is 0."
+  },
   "action (custom)": {
     description: "Define custom action",
-    longDescription: "Defines a reusable named action block that can be called from anywhere in the cell. Actions are cell-scoped subroutines \u2014 define once on any object (or the cell script), call with `do actionName` from any script. The caller's `self` is preserved.",
-    example: `// Define on any object:
+    longDescription: "Defines a reusable named action block that can be called from anywhere in the cell. Actions are cell-scoped subroutines \u2014 define once on any object (or the cell script), call with `do actionName` from any script. The caller's `self` is preserved.\n\nOptional brace-bag parameters: `action name {a, b, c: defaultExpr}:` declares params (defaults are evaluated in the caller's context when the arg is omitted). Pass args with the same brace-bag syntax: `do name {a: 1, b: x+2}`. Param names are mutable inside the action body \u2014 `set a a + 1` stays scoped to the call and does not leak to the caller.",
+    example: `// Parameterless action \u2014 same as before:
 action dropPiece:
   set Board.cell[col][row].owner currentPlayer
-  spawn "Piece" {col: col, row: row}
 
-// Call from any script in the cell:
+// Action with params and a default:
+action spawnBird {template, x, y, drift: 0.1}:
+  spawn template {x: x, y: y, drift: drift, scrollFactor: 1}
+
+// Call sites:
 do dropPiece
-do checkWin`,
+do spawnBird {template: "Crow", x: 0.5, y: -0.1}
+do spawnBird {template: "Goose", x: 0.5, y: -0.1, drift: 0.2}`,
     parameters: [
-      { name: "name", type: "string", description: "Action name (no spaces)" }
+      { name: "name", type: "string", description: "Action name (no spaces)" },
+      { name: "params", type: "keywords", description: "Optional brace-bag: `{a, b, c: defaultExpr}`. Bare names are required; `name: expr` provides a default evaluated in the caller's context when the arg is omitted." }
     ],
-    notes: "Variables are shared between caller and action. `self` refers to the calling object, not the defining object. First matching definition in the cell wins."
+    notes: "Globals are still shared between caller and action (read/write). Param names shadow globals for both reads and writes inside the body \u2014 mutations to a param stay local to the call. `self` refers to the calling object, not the defining object. First matching definition in the cell wins."
   },
   "enable movable": {
     description: "Enable movement",
@@ -4309,7 +5058,7 @@ animate self "run" loop exclusive
 animate self "walk" reverse
 animate Button "hover" duration 200 loop`,
     parameters: [
-      { name: "target", type: "string", description: "Object name, self, #tag, or all type" },
+      { name: "target", type: "string", description: "Object name, self, #tag, all type, or `scene` for a scene-wide CSS filter" },
       { name: "group", type: "string", description: "State group name (in quotes)" },
       { name: "fps", type: "number", description: "Frames per second \u2014 frame mode (overrides group default)", optional: true },
       { name: "duration", type: "number", description: "Milliseconds per transition step \u2014 tween mode (overrides group default)", optional: true },
@@ -4329,7 +5078,7 @@ animate Button "hover" duration 200 loop`,
 stop animate Button
 stop animate #enemies`,
     parameters: [
-      { name: "target", type: "string", description: "Object name, self, #tag, or all type" }
+      { name: "target", type: "string", description: "Object name, self, #tag, all type, or `scene` for a scene-wide CSS filter" }
     ],
     notes: "Object retains its current appearance. Different from `stop` which stops procedural animations (shake, pulse, etc.)."
   },
@@ -4347,6 +5096,48 @@ reveal Mask1 self.x self.y 0.05 0.02`,
       { name: "fade", type: "expression", description: "Edge fade width in mask-relative units (optional, uses mask default)", optional: true }
     ],
     notes: "Coordinates use the mask's coordinate system (0,0 = top-left of mask, maskWidth,maskHeight = bottom-right). Radius and fade are in the same units."
+  },
+  push: {
+    description: "Append to an array",
+    longDescription: "Appends a value to the end of an array. The array can be a free variable or a property path on an object (including DATA primes' `dataValue`). Use `push first` to prepend instead.",
+    example: `push items 5
+push first items 99
+push scores {name: "Yuri", score: 1200}
+push Data1.dataValue {q: "?", choices: [], correct: 0}
+push Inventory.value.weapons "sword"`,
+    parameters: [
+      { name: "target", type: "string", description: "Dotted path to the array (var or Object.property[.path])" },
+      { name: "first", type: "keyword", description: "Optional. Prepend instead of append.", optional: true },
+      { name: "value", type: "any", description: "Value to append (any expression: scalar, array literal, map literal)" }
+    ],
+    notes: "Initial nil/empty target is treated as an empty array. For a specific position, use `insert TARGET at INDEX VALUE`. To replace at a position instead of inserting, use `set TARGET[INDEX] VALUE`."
+  },
+  insert: {
+    description: "Insert into an array at a specific index",
+    longDescription: "Inserts a value at the given index, shifting subsequent elements right by one. Errors if the index is out of range (negative or > length).",
+    example: `insert items at 0 99
+insert rows at 3 {x: 0.5, y: 0.6}
+insert Data1.dataValue at 5 {q: "new"}`,
+    parameters: [
+      { name: "target", type: "string", description: "Dotted path to the array" },
+      { name: "at", type: "keyword", description: "Required keyword separating target from index" },
+      { name: "index", type: "number", description: "Insertion index (0-based; equal to length appends)" },
+      { name: "value", type: "any", description: "Value to insert" }
+    ],
+    notes: "Index out of range is a no-op with a console error. Use `push` for end-append; use `set TARGET[i] VALUE` to replace an existing element."
+  },
+  remove: {
+    description: "Remove an array element or map key",
+    longDescription: "Removes a single element from an array (by index, shifting remaining elements down) or a single key from a map. The two forms are distinguished by the syntax \u2014 bracket form for arrays, dotted form for maps.",
+    example: `remove items[3]
+remove cfg.foo
+remove Data1.dataValue[5]
+remove Inventory.value.weapons[0]
+remove Settings.value.weather.snow`,
+    parameters: [
+      { name: "target", type: "string", description: "For arrays: path[i]. For maps: path.key (last dotted segment is the key removed)." }
+    ],
+    notes: "Out-of-range index or missing key is a no-op with a console error. Type mismatch (e.g., remove key on an array) errors. To clear an entire structure, use `set TARGET []` or `set TARGET {}` instead."
   },
   addtag: {
     description: "Add tag to object",
@@ -4576,11 +5367,12 @@ var FUNCTIONS = {
     returns: "string"
   },
   length: {
-    description: "Array/string length",
-    longDescription: "Returns the number of elements in an array or characters in a string.",
-    example: "if length(items) > 0:",
+    description: "Array/string/map length",
+    longDescription: "Returns the number of elements in an array, characters in a string, or keys in a map. Returns 0 for any other value.",
+    example: `if length(items) > 0:
+set keyCount length(Settings.value)`,
     parameters: [
-      { name: "value", type: "array|string", description: "Array or string to measure" }
+      { name: "value", type: "array|string|map", description: "Array, string, or map (object) to measure" }
     ],
     returns: "number"
   },
@@ -4611,6 +5403,69 @@ var FUNCTIONS = {
       { name: "array", type: "array", description: "Array to pick from" }
     ],
     returns: "any"
+  },
+  filter: {
+    description: "Filter array by property comparison",
+    longDescription: 'Returns a new sub-array containing only items where the named property satisfies the comparison. Property name may be dotted (e.g., "stats.hp"). Operators: ==, !=, >, <, >=, <=.',
+    example: 'set milks filter(Ingredients.dataValue, "category", "==", "milk")\nset adults filter(npcs, "age", ">=", 18)',
+    parameters: [
+      { name: "array", type: "array", description: "Array of items (typically objects/maps)" },
+      { name: "property", type: "string", description: "Property name on each item (may be dotted)" },
+      { name: "operator", type: "string", description: "Comparison: ==, !=, >, <, >=, <=" },
+      { name: "value", type: "any", description: "Value to compare against" }
+    ],
+    returns: "array"
+  },
+  find: {
+    description: "Find first array item by property comparison",
+    longDescription: "Returns the first item in the array whose property satisfies the comparison, or 0 if none match. Same operators as filter().",
+    example: 'set recipe find(Recipes.dataValue, "id", "==", "flat-white")\nif recipe != 0:\n  log "found: " recipe.id',
+    parameters: [
+      { name: "array", type: "array", description: "Array to search" },
+      { name: "property", type: "string", description: "Property name on each item (may be dotted)" },
+      { name: "operator", type: "string", description: "Comparison: ==, !=, >, <, >=, <=" },
+      { name: "value", type: "any", description: "Value to compare against" }
+    ],
+    returns: "any"
+  },
+  join: {
+    description: "Join array values into a string",
+    longDescription: 'Concatenates the array elements into a string, separated by the given separator (default ","). Each element is stringified.',
+    example: 'set list join(["a", "b", "c"], ", ")  // "a, b, c"\nset csv join(scores, ",")',
+    parameters: [
+      { name: "array", type: "array", description: "Array to join" },
+      { name: "separator", type: "string", description: 'Separator between elements (default ",")', optional: true }
+    ],
+    returns: "string"
+  },
+  replace: {
+    description: "Replace all occurrences in a string",
+    longDescription: "Returns a new string with every occurrence of `find` replaced by `replacement`. Plain string match (not regex). Returns original string if `find` is empty.",
+    example: 'set greeting replace("Hello {name}", "{name}", playerName)',
+    parameters: [
+      { name: "string", type: "string", description: "Source string" },
+      { name: "find", type: "string", description: "Substring to replace (every occurrence)" },
+      { name: "replacement", type: "string", description: "Replacement string" }
+    ],
+    returns: "string"
+  },
+  upper: {
+    description: "Uppercase a string",
+    longDescription: "Returns the input string with all letters converted to uppercase.",
+    example: 'set yell upper("hello")  // "HELLO"',
+    parameters: [
+      { name: "string", type: "string", description: "String to uppercase" }
+    ],
+    returns: "string"
+  },
+  lower: {
+    description: "Lowercase a string",
+    longDescription: "Returns the input string with all letters converted to lowercase.",
+    example: 'set quiet lower("HELLO")  // "hello"',
+    parameters: [
+      { name: "string", type: "string", description: "String to lowercase" }
+    ],
+    returns: "string"
   },
   isEmpty: {
     description: "Check grid cell empty",
@@ -4871,6 +5726,24 @@ var VARIABLES = {
     example: "set marker.y clickY",
     type: "number"
   },
+  dragStartX: {
+    description: "Drag origin X in world units",
+    longDescription: "World-space X coordinate where the current drag gesture began. Available in onDragStart, onDrag, and onDragEnd handlers (both cell and object scope). Combine with clickX to measure drag extent: set dx clickX - dragStartX.",
+    example: "set dx clickX - dragStartX",
+    type: "number"
+  },
+  dragStartY: {
+    description: "Drag origin Y in world units",
+    longDescription: "World-space Y coordinate where the current drag gesture began. Available in onDragStart, onDrag, and onDragEnd handlers (both cell and object scope).",
+    example: "set dy clickY - dragStartY",
+    type: "number"
+  },
+  dragDuration: {
+    description: "Drag duration in ms",
+    longDescription: "Milliseconds elapsed since the current drag began. Available in onDrag and onDragEnd handlers. Use with dragStartX/dragStartY and clickX/clickY to detect swipes (e.g., dragDuration < 300 and distance > 0.1).",
+    example: 'if dragDuration < 300 and abs(clickX - dragStartX) > 0.1:\n  shout "swipeRight"',
+    type: "number"
+  },
   deltaTime: {
     description: "Frame time in seconds",
     longDescription: "Time elapsed since the last physics frame, in seconds. Available in onTick handlers. Use for frame-rate independent calculations: multiply speeds and rates by deltaTime.",
@@ -5014,6 +5887,31 @@ var OPERATORS2 = {
     description: "Less or equal",
     example: "if tries <= 3:",
     category: "comparison"
+  },
+  "+": {
+    description: "Add (numbers) or concatenate (strings)",
+    example: 'set total a + b\nset label "Score: " + score',
+    category: "arithmetic"
+  },
+  "-": {
+    description: "Subtract",
+    example: "set diff a - b",
+    category: "arithmetic"
+  },
+  "*": {
+    description: "Multiply",
+    example: "set product a * b",
+    category: "arithmetic"
+  },
+  "/": {
+    description: "Divide",
+    example: "set ratio a / b",
+    category: "arithmetic"
+  },
+  "%": {
+    description: 'Modulo (remainder). Also available as keyword "mod".',
+    example: "set wrapped i % length(items)\nset wrapped i mod length(items)",
+    category: "arithmetic"
   }
 };
 var SCRIPTABLE_PROPERTIES = {
@@ -5022,6 +5920,7 @@ var SCRIPTABLE_PROPERTIES = {
   y: { description: "Vertical position", type: "number", example: "set Box.y 0.25" },
   width: { description: "Width", type: "number", example: "set Box.width 0.3" },
   height: { description: "Height", type: "number", example: "set Box.height 0.2" },
+  area: { description: "Geometric area in cell units\xB2 (read-only). Handles rectangle, ellipse, polygon, and curved paths (Bezier sampling). Lines return 0.", type: "number", example: "set total Lake.area" },
   lineX1: { description: "Line start X", type: "number", example: "set self.lineX1 0.1" },
   lineY1: { description: "Line start Y", type: "number", example: "set self.lineY1 0.2" },
   lineX2: { description: "Line end X", type: "number", example: "set self.lineX2 0.9" },
@@ -5065,13 +5964,18 @@ var SCRIPTABLE_PROPERTIES = {
   // Dynamics properties (read-only)
   cellX: { description: "Grid column position", type: "number", example: "if Player.cellX == 3:", readonly: true },
   cellY: { description: "Grid row position", type: "number", example: "if Player.cellY == 2:", readonly: true },
+  cellXTo: { description: "Destination cell column during a transport-to-cell movement. Undefined when no cell movement is in flight; cellX/Y are then authoritative.", type: "number", example: "if self.cellXTo == 5:", readonly: true },
+  cellYTo: { description: "Destination cell row during a transport-to-cell movement. Undefined when no cell movement is in flight; cellX/Y are then authoritative.", type: "number", example: "if self.cellYTo == 0:", readonly: true },
   moving: { description: "Is object moving", type: "boolean", example: "if Player.moving:", readonly: true },
   direction: { description: "Movement direction", type: "string", example: 'if Player.direction == "down":', readonly: true, notes: '"up", "down", "left", "right", "none"' },
   velocityX: { description: "Horizontal velocity", type: "number", example: "set Ball.velocityX 0.3" },
   velocityY: { description: "Vertical velocity", type: "number", example: "set Ball.velocityY -0.5" },
-  angularVelocity: { description: "Rotation speed (deg/sec)", type: "number", example: "if Box.angularVelocity > 10:", readonly: true, notes: "Only available on rotatable objects" },
+  angularVelocity: { description: "Rotation speed (deg/sec). Writable: `set Box.angularVelocity 30` spins the object next frame", type: "number", example: "set Box.angularVelocity 30", notes: "Only meaningful on rotatable objects. Like velocityX/Y, the new value applies to the next physics tick." },
   moveAngle: { description: "Movement angle (degrees)", type: "number", example: "set self.rotation moveAngle", readonly: true, notes: "0=right, 90=down, 180=left, 270=up, -1=not moving" },
   moveSpeed: { description: "Movement speed magnitude", type: "number", example: "if Player.moveSpeed > 0.5:", readonly: true },
+  movedSinceSpawnX: { description: "Signed horizontal displacement since spawn or cell entry (current x \u2212 spawn x)", type: "number", example: "if self.movedSinceSpawnX > 1:", readonly: true },
+  movedSinceSpawnY: { description: "Signed vertical displacement since spawn or cell entry (current y \u2212 spawn y)", type: "number", example: "if self.movedSinceSpawnY < -1:", readonly: true },
+  distanceTraveled: { description: "Cumulative engine-integrated path length since spawn or cell entry. Excludes teleports via set self.x / set self.y", type: "number", example: "if self.distanceTraveled > 5:", readonly: true },
   followDistance: { description: "Follow/avoid distance (read/write at runtime, negative = overlap)", type: "number", example: "set self.followDistance 0.1", notes: "Only available when follow/avoid is enabled" },
   spriteFrame: { description: "Current sprite sheet frame (0-based)", type: "number", example: "set self.spriteFrame 3", notes: "Only affects objects with sprite sheet image fills (spriteColumns/spriteRows > 1)" },
   tags: { description: "Object tags (array of strings)", type: "array", example: 'set self.tags ["tile", "clickable"]' },
@@ -5469,7 +6373,7 @@ var EVENT_SNIPPETS = Object.entries(EVENTS).map(([name, def]) => ({
 }));
 
 // src/utils/scriptValidator.ts
-var SPECIAL_REFS = /* @__PURE__ */ new Set(["self", "other", "parent", "siblings", "children", "cell", "camera"]);
+var SPECIAL_REFS = /* @__PURE__ */ new Set(["self", "other", "parent", "root", "siblings", "children", "cell", "camera"]);
 function validateScriptReferences(events, objectNames, cellLabels) {
   const warnings = [];
   const objectSet = new Set(objectNames.map((n) => n.toLowerCase()));
@@ -5498,10 +6402,10 @@ function validateStatements(statements, objectSet, cellSet, warnings, loopVariab
         if (SPECIAL_REFS.has(firstPart)) {
           break;
         }
-        if (loopVariables.has(target)) {
+        if (loopVariables.has(target) || loopVariables.has(firstPart)) {
           break;
         }
-        if (!objectSet.has(target)) {
+        if (!objectSet.has(firstPart)) {
           warnings.push({
             message: `"${stmt.target}" not found - check spelling or if object was renamed`,
             line
@@ -5539,10 +6443,10 @@ function validateStatements(statements, objectSet, cellSet, warnings, loopVariab
         if (SPECIAL_REFS.has(firstPart)) {
           break;
         }
-        if (loopVariables.has(target)) {
+        if (loopVariables.has(target) || loopVariables.has(firstPart)) {
           break;
         }
-        if (!objectSet.has(target)) {
+        if (!objectSet.has(firstPart)) {
           warnings.push({
             message: `"${stmt.object}" not found - check spelling or if object was renamed`,
             line

@@ -947,8 +947,22 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
     let result: string
 
     if (BROWSER_TOOLS.has(name)) {
+      const fwdArgs = (args ?? {}) as Record<string, unknown>
+      // The MCP client serializes object/array `value` args to JSON strings
+      // (the `value` param has no schema `type`). Un-mangle before forwarding so
+      // push_value/set_value_at_path store real structures, not the literal
+      // string. Scalar strings (colors, names) don't start with {/[ — left alone.
+      if ((name === 'push_value' || name === 'set_value_at_path') && typeof fwdArgs.value === 'string') {
+        const t = fwdArgs.value.trim()
+        if (t[0] === '{' || t[0] === '[') {
+          try {
+            const parsed = JSON.parse(t)
+            if (parsed !== null && typeof parsed === 'object') fwdArgs.value = parsed
+          } catch { /* not JSON — leave the original string */ }
+        }
+      }
       // Forward to browser via WebSocket
-      result = await bridge.forward(name, (args ?? {}) as Record<string, unknown>)
+      result = await bridge.forward(name, fwdArgs)
     } else if (name === 'validate_script') {
       result = handleValidateScript(args as { code: string })
     } else if (name === 'dsl_reference') {

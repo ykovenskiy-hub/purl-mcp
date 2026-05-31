@@ -533,7 +533,22 @@ function parsePrimary(ctx) {
           break;
         }
       }
-      return { type: "property", cell: cellName, object: objectName, property: propertyParts.join(".") };
+      let result = { type: "property", cell: cellName, object: objectName, property: propertyParts.join(".") };
+      while (ctx.check("LBRACKET")) {
+        ctx.advance();
+        const index = parseExpression(ctx);
+        ctx.expect("RBRACKET");
+        let tailProperty;
+        while (ctx.check("DOT")) {
+          const next = ctx.peekNext();
+          if (!next || next.type !== "IDENTIFIER" && next.type !== "KEYWORD") break;
+          ctx.advance();
+          ctx.advance();
+          tailProperty = tailProperty === void 0 ? next.value : `${tailProperty}.${next.value}`;
+        }
+        result = tailProperty !== void 0 ? { type: "index", array: result, index, property: tailProperty } : { type: "index", array: result, index };
+      }
+      return result;
     } else {
       ctx.error(`Expected property name, got ${firstPropToken.type}`);
       return { type: "literal", value: 0 };
@@ -3308,6 +3323,8 @@ function parseSingleEvent(token) {
     return { event: "onDrag" };
   } else if (tokenLower === "ondragend") {
     return { event: "onDragEnd" };
+  } else if (tokenLower === "onscroll") {
+    return { event: "onScroll" };
   } else if (tokenLower === "onsubmit") {
     return { event: "onSubmit" };
   } else if (tokenLower === "ondefocus") {
@@ -3897,6 +3914,14 @@ onMessageFrom Controller "GAME_OVER":
   if self.x > 0.5:
     set self.x 0.5`,
     notes: "Fires once when pointer is released. clickX/clickY are the release position; dragStartX/dragStartY are where the drag began; dragDuration is total ms."
+  },
+  onScroll: {
+    description: "When the wheel scrolls",
+    longDescription: "Triggers on mouse-wheel or trackpad scroll. Fires on the object under the pointer if that object has an onScroll handler; otherwise on the cell \u2014 so a cell-level handler catches wheel input anywhere objects do not claim it. Unlike drag, the wheel has no native start/end: each scroll fires exactly one onScroll. Use scrollY for the vertical amount and scrollX for horizontal; both are deltaMode-normalized so a standard mouse notch \u2248 \xB11 (fractional on trackpads). scrollY > 0 = scrolled down/toward you, < 0 = up/away; scrollX > 0 = right. clickX/clickY give the pointer position in world coordinates (for zoom-to-cursor). Absolute magnitude is device-dependent; direction and proportionality are stable. Apply zoom multiplicatively.",
+    validFor: ["cell", "object"],
+    example: `onScroll:
+  set game.zoom max(1, min(20, game.zoom * (1 - scrollY * 0.1)))`,
+    notes: "scrollX/scrollY are deltaMode-normalized (mouse notch \u2248 \xB11, fractional on trackpads). clickX/clickY are the pointer position in world units. No onScrollStart/onScrollEnd \u2014 the wheel has no native gesture boundaries."
   },
   onMove: {
     description: "When movement direction changes",
@@ -5726,6 +5751,30 @@ var VARIABLES = {
     example: "set marker.y clickY",
     type: "number"
   },
+  shiftKey: {
+    description: "Shift held at pointer-down",
+    longDescription: "True if the Shift key was held when the current pointer event began. Snapshot at pointer-down (web standard), so the same value applies through onClick / onDragStart / onDrag / onDragEnd of a single gesture. Use to layer secondary actions on existing click handlers (e.g., shift+click = teleport).",
+    example: "onClick:\n  if shiftKey:\n    teleport self clickX clickY\n  else:\n    focus self",
+    type: "boolean"
+  },
+  ctrlKey: {
+    description: "Ctrl held at pointer-down",
+    longDescription: "True if the Ctrl key was held when the current pointer event began. Snapshot at pointer-down. See shiftKey for usage pattern.",
+    example: 'if ctrlKey:\n  shout "MULTI_SELECT"',
+    type: "boolean"
+  },
+  altKey: {
+    description: "Alt held at pointer-down",
+    longDescription: "True if the Alt key was held when the current pointer event began. Snapshot at pointer-down. See shiftKey for usage pattern.",
+    example: 'if altKey:\n  shout "DUPLICATE"',
+    type: "boolean"
+  },
+  metaKey: {
+    description: "Meta (Cmd/Win) held at pointer-down",
+    longDescription: "True if the Meta key (Command on macOS, Windows on Windows) was held when the current pointer event began. Snapshot at pointer-down. Prefer ctrlKey for cross-platform shortcuts unless macOS-specific behaviour is intended.",
+    example: 'if metaKey or ctrlKey:\n  shout "QUICK_ACTION"',
+    type: "boolean"
+  },
   dragStartX: {
     description: "Drag origin X in world units",
     longDescription: "World-space X coordinate where the current drag gesture began. Available in onDragStart, onDrag, and onDragEnd handlers (both cell and object scope). Combine with clickX to measure drag extent: set dx clickX - dragStartX.",
@@ -5754,6 +5803,12 @@ var VARIABLES = {
     description: "Other object in collision/overlap",
     longDescription: "References the other object involved in a collision or overlap event. Available in onCollide, onOverlap, and onOverlapEnd handlers. Access properties with other.property (e.g., other.name, other.x, other.visible). Can also read custom object variables with other.varName. Use `is` to check tags: `if other is #enemy`.",
     example: "if other is #missile:\n  set health health - 1",
+    type: "object"
+  },
+  clicked: {
+    description: "Object actually clicked in onClick",
+    longDescription: "References the object actually under the cursor in an onClick handler \u2014 even when a parent component absorbs the click (a component with its own onClick treats clicks on its children/injected objects as its own). Mirrors `other` from collisions. Access properties with clicked.property (e.g. clicked.name, clicked.place_km) and check tags with `is`: `if clicked is #place`. On a plain top-level object click, clicked is that object.",
+    example: "onClick:\n  if clicked is #place:\n    set game.target_km clicked.place_km",
     type: "object"
   },
   newGame: {

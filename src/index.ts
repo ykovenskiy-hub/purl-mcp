@@ -76,6 +76,7 @@ const BROWSER_TOOLS = new Set([
   'get_project', 'list_objects', 'get_object', 'get_script', 'get_script_history', 'get_states',
   'search_scripts', 'read_project_scripts',
   'set_property', 'update_script', 'edit_script', 'add_object', 'remove_object', 'update_cell',
+  'move_object',
   'clone_object', 'bulk_set_property',
   'push_value', 'set_value_at_path', 'remove_value_at_path',
   'get_debug_logs', 'set_debug_domains', 'clear_debug_logs',
@@ -395,7 +396,7 @@ const tools: Tool[] = [
   },
   {
     name: 'add_object',
-    description: 'Add a new object (prime or component) to a cell. Returns the created object summary.',
+    description: 'Add a new object (prime or component) to a cell. Optionally adds the object as a child of an existing component via parentName. Returns the created object summary.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -415,6 +416,10 @@ const tools: Tool[] = [
         properties: {
           type: 'object',
           description: 'Optional properties to set (x, y, width, height, content, tags, etc.)',
+        },
+        parentName: {
+          type: 'string',
+          description: 'Optional: name of an existing component in the same cell to add this object into as a child. Without it, the object is added at cell top level. Errors if the named object is not a component.',
         },
         prompt: PROMPT_PARAM,
       },
@@ -438,6 +443,29 @@ const tools: Tool[] = [
         prompt: PROMPT_PARAM,
       },
       required: ['objectName', 'prompt'],
+    },
+  },
+  {
+    name: 'move_object',
+    description: 'Reparent an existing object within the same cell. Use `newParent: "top"` to hoist to cell top level; pass any other string to move into the named component. No-ops when the object is already at the requested parent. Errors if the named parent is not a component, or when trying to move an object into itself.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        objectName: {
+          type: 'string',
+          description: 'Name of the object to move',
+        },
+        newParent: {
+          type: 'string',
+          description: 'Destination: the literal "top" to hoist to cell top level, or the name of a component in the same cell to nest under. Required — there is no default to prevent accidental moves.',
+        },
+        cellName: {
+          type: 'string',
+          description: 'Optional: cell to search in (by label). Required when the object name exists in multiple cells.',
+        },
+        prompt: PROMPT_PARAM,
+      },
+      required: ['objectName', 'newParent', 'prompt'],
     },
   },
   {
@@ -479,7 +507,7 @@ const tools: Tool[] = [
   },
   {
     name: 'clone_object',
-    description: 'Deep-clone an object (with all children, presets, states, scripts) into the same or a different cell. Generates new unique IDs and renames children to avoid name collisions.',
+    description: 'Deep-clone an object (with all children, presets, states, scripts) into the same or a different cell. Generates new unique IDs and renames children to avoid name collisions. Optionally lands the clone as a child of an existing component via parentName.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -498,6 +526,10 @@ const tools: Tool[] = [
         targetCellName: {
           type: 'string',
           description: 'Optional: cell to place the clone in (defaults to same cell as source)',
+        },
+        parentName: {
+          type: 'string',
+          description: 'Optional: name of an existing component in the target cell to add the clone into as a child. Without it, the clone lands at cell top level. Errors if the named object is not a component.',
         },
         prompt: PROMPT_PARAM,
       },

@@ -59,7 +59,8 @@ const BROWSER_TOOLS = new Set([
     'get_project', 'list_objects', 'get_object', 'get_script', 'get_script_history', 'get_states',
     'search_scripts', 'read_project_scripts',
     'set_property', 'update_script', 'edit_script', 'add_object', 'remove_object', 'update_cell',
-    'clone_object', 'bulk_set_property',
+    'move_object',
+    'clone_object', 'bulk_clone', 'bulk_set_property',
     'push_value', 'set_value_at_path', 'remove_value_at_path',
     'get_debug_logs', 'set_debug_domains', 'clear_debug_logs',
 ]);
@@ -117,16 +118,16 @@ const tools = [
         inputSchema: {
             type: 'object',
             properties: {
-                objectName: {
+                target: {
                     type: 'string',
-                    description: 'Name of the object to inspect',
+                    description: 'Name of the object to inspect (formerly `objectName`, still accepted)',
                 },
                 cellName: {
                     type: 'string',
                     description: 'Optional: cell to search in (by label)',
                 },
             },
-            required: ['objectName'],
+            required: ['target'],
         },
     },
     {
@@ -348,9 +349,9 @@ const tools = [
         inputSchema: {
             type: 'object',
             properties: {
-                objectName: {
+                target: {
                     type: 'string',
-                    description: 'Name of the object to modify',
+                    description: 'Name of the object to modify (formerly `objectName`, still accepted)',
                 },
                 cellName: {
                     type: 'string',
@@ -370,12 +371,12 @@ const tools = [
                 },
                 prompt: PROMPT_PARAM,
             },
-            required: ['objectName', 'properties', 'prompt'],
+            required: ['target', 'properties', 'prompt'],
         },
     },
     {
         name: 'add_object',
-        description: 'Add a new object (prime or component) to a cell. Returns the created object summary.',
+        description: 'Add a new object (prime or component) to a cell. Optionally adds the object as a child of an existing component via parentName. Returns the created object summary.',
         inputSchema: {
             type: 'object',
             properties: {
@@ -396,6 +397,10 @@ const tools = [
                     type: 'object',
                     description: 'Optional properties to set (x, y, width, height, content, tags, etc.)',
                 },
+                parentName: {
+                    type: 'string',
+                    description: 'Optional: name of an existing component in the same cell to add this object into as a child. Without it, the object is added at cell top level. Errors if the named object is not a component.',
+                },
                 prompt: PROMPT_PARAM,
             },
             required: ['cellName', 'name', 'type', 'prompt'],
@@ -407,9 +412,9 @@ const tools = [
         inputSchema: {
             type: 'object',
             properties: {
-                objectName: {
+                target: {
                     type: 'string',
-                    description: 'Name of the object to remove',
+                    description: 'Name of the object to remove (formerly `objectName`, still accepted)',
                 },
                 cellName: {
                     type: 'string',
@@ -417,7 +422,30 @@ const tools = [
                 },
                 prompt: PROMPT_PARAM,
             },
-            required: ['objectName', 'prompt'],
+            required: ['target', 'prompt'],
+        },
+    },
+    {
+        name: 'move_object',
+        description: 'Reparent an existing object within the same cell. Use `newParent: "top"` to hoist to cell top level; pass any other string to move into the named component. No-ops when the object is already at the requested parent. Errors if the named parent is not a component, or when trying to move an object into itself.',
+        inputSchema: {
+            type: 'object',
+            properties: {
+                target: {
+                    type: 'string',
+                    description: 'Name of the object to move (formerly `objectName`, still accepted)',
+                },
+                newParent: {
+                    type: 'string',
+                    description: 'Destination: the literal "top" to hoist to cell top level, or the name of a component in the same cell to nest under. Required — there is no default to prevent accidental moves.',
+                },
+                cellName: {
+                    type: 'string',
+                    description: 'Optional: cell to search in (by label). Required when the object name exists in multiple cells.',
+                },
+                prompt: PROMPT_PARAM,
+            },
+            required: ['target', 'newParent', 'prompt'],
         },
     },
     {
@@ -445,21 +473,21 @@ const tools = [
         inputSchema: {
             type: 'object',
             properties: {
-                objectName: {
+                target: {
                     type: 'string',
-                    description: 'Name of the component to inspect',
+                    description: 'Name of the component to inspect (formerly `objectName`, still accepted)',
                 },
                 cellName: {
                     type: 'string',
                     description: 'Optional: cell to search in (by label)',
                 },
             },
-            required: ['objectName'],
+            required: ['target'],
         },
     },
     {
         name: 'clone_object',
-        description: 'Deep-clone an object (with all children, presets, states, scripts) into the same or a different cell. Generates new unique IDs and renames children to avoid name collisions.',
+        description: 'Deep-clone an object (with all children, presets, states, scripts) into the same or a different cell. Generates new unique IDs and renames children to avoid name collisions. Optionally lands the clone as a child of an existing component via parentName.',
         inputSchema: {
             type: 'object',
             properties: {
@@ -479,9 +507,65 @@ const tools = [
                     type: 'string',
                     description: 'Optional: cell to place the clone in (defaults to same cell as source)',
                 },
+                parentName: {
+                    type: 'string',
+                    description: 'Optional: name of an existing component in the target cell to add the clone into as a child. Without it, the clone lands at cell top level. Errors if the named object is not a component.',
+                },
                 prompt: PROMPT_PARAM,
             },
             required: ['sourceName', 'newName', 'prompt'],
+        },
+    },
+    {
+        name: 'bulk_clone',
+        description: 'Deep-clone one source object into many copies in a single call — the batch counterpart to clone_object. Names come from either an explicit `names` list or a `namePattern` containing "{i}" plus a `count` (if both are given, `names` wins and the count is its length). Each clone gets fresh unique IDs and collision-safe child renaming, optionally lands inside a component via `parentName`, and can be offset per-instance via `xOffsetPer`/`yOffsetPer` (added as index×offset to the clone and all its descendants). All clones collapse into one undo step.',
+        inputSchema: {
+            type: 'object',
+            properties: {
+                sourceName: {
+                    type: 'string',
+                    description: 'Name of the object to clone',
+                },
+                names: {
+                    type: 'array',
+                    items: { type: 'string' },
+                    description: 'Explicit list of names for the clones (each must be unique and new). Takes precedence over namePattern+count; the number of clones equals this list length.',
+                },
+                namePattern: {
+                    type: 'string',
+                    description: 'Name template containing "{i}", e.g. "Row{i}". Used with `count` when `names` is not supplied. "{i}" is replaced by startIndex, startIndex+1, … Must contain "{i}", otherwise the call errors (clones would share a name).',
+                },
+                count: {
+                    type: 'number',
+                    description: 'Number of clones to create when using `namePattern`. Ignored when `names` is provided.',
+                },
+                startIndex: {
+                    type: 'number',
+                    description: 'Optional (default 0): the first value substituted for "{i}" in namePattern. Does not affect the offset multiplier, which is always 0-based within the batch.',
+                },
+                cellName: {
+                    type: 'string',
+                    description: 'Optional: cell where the source object lives (by label)',
+                },
+                targetCellName: {
+                    type: 'string',
+                    description: 'Optional: cell to place the clones in (defaults to the source cell)',
+                },
+                parentName: {
+                    type: 'string',
+                    description: 'Optional: name of an existing component in the target cell to add every clone into as a child. Errors if it is not a component.',
+                },
+                xOffsetPer: {
+                    type: 'number',
+                    description: 'Optional: x added per clone = index × this. Shifts the clone and all its descendants, so it works for components (whose children store absolute coords) as well as primes.',
+                },
+                yOffsetPer: {
+                    type: 'number',
+                    description: 'Optional: y added per clone = index × this. Same subtree-shift semantics as xOffsetPer.',
+                },
+                prompt: PROMPT_PARAM,
+            },
+            required: ['sourceName', 'prompt'],
         },
     },
     {
@@ -495,9 +579,9 @@ const tools = [
                     items: {
                         type: 'object',
                         properties: {
-                            objectName: {
+                            target: {
                                 type: 'string',
-                                description: 'Name of the object to modify',
+                                description: 'Name of the object to modify (formerly `objectName`, still accepted)',
                             },
                             properties: {
                                 type: 'object',
@@ -512,9 +596,9 @@ const tools = [
                                 description: 'Pass true to allow shape changes (array/map/scalar) on this entry\'s properties.',
                             },
                         },
-                        required: ['objectName', 'properties'],
+                        required: ['target', 'properties'],
                     },
-                    description: 'Array of { objectName, properties } entries',
+                    description: 'Array of { target, properties } entries',
                 },
                 cellName: {
                     type: 'string',
@@ -548,7 +632,7 @@ const tools = [
         inputSchema: {
             type: 'object',
             properties: {
-                objectName: { type: 'string', description: 'Name of the object whose property holds the array' },
+                target: { type: 'string', description: 'Name of the object whose property holds the array (formerly `objectName`, still accepted)' },
                 cellName: { type: 'string', description: 'Optional: cell to search in (by label)' },
                 path: {
                     type: 'string',
@@ -563,7 +647,7 @@ const tools = [
                 },
                 prompt: PROMPT_PARAM,
             },
-            required: ['objectName', 'path', 'value', 'prompt'],
+            required: ['target', 'path', 'value', 'prompt'],
         },
     },
     {
@@ -572,7 +656,7 @@ const tools = [
         inputSchema: {
             type: 'object',
             properties: {
-                objectName: { type: 'string', description: 'Name of the object whose property holds the value' },
+                target: { type: 'string', description: 'Name of the object whose property holds the value (formerly `objectName`, still accepted)' },
                 cellName: { type: 'string', description: 'Optional: cell to search in (by label)' },
                 path: {
                     type: 'string',
@@ -587,7 +671,7 @@ const tools = [
                 },
                 prompt: PROMPT_PARAM,
             },
-            required: ['objectName', 'path', 'value', 'prompt'],
+            required: ['target', 'path', 'value', 'prompt'],
         },
     },
     {
@@ -596,7 +680,7 @@ const tools = [
         inputSchema: {
             type: 'object',
             properties: {
-                objectName: { type: 'string', description: 'Name of the object' },
+                target: { type: 'string', description: 'Name of the object (formerly `objectName`, still accepted)' },
                 cellName: { type: 'string', description: 'Optional: cell to search in (by label)' },
                 path: {
                     type: 'string',
@@ -608,7 +692,7 @@ const tools = [
                 },
                 prompt: PROMPT_PARAM,
             },
-            required: ['objectName', 'path', 'prompt'],
+            required: ['target', 'path', 'prompt'],
         },
     },
     // --- Play Debug log tools ---

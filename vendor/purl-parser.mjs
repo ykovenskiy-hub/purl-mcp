@@ -2130,6 +2130,29 @@ function parseClearInject(ctx) {
 }
 function parseActionCall(ctx) {
   ctx.advance();
+  if (ctx.check("AT")) {
+    ctx.advance();
+    const cellName = parseIdentifierOrString(ctx);
+    if (!ctx.check("DOT")) {
+      ctx.error(`Expected '.' after cell name in do @${cellName}`);
+      return { type: "action-call", object: "self", action: "" };
+    }
+    ctx.advance();
+    const actToken = ctx.peek();
+    if (actToken.type !== "IDENTIFIER" && actToken.type !== "KEYWORD") {
+      ctx.error(`Expected action name after do @${cellName}.`);
+      return { type: "action-call", object: "self", action: "", cell: cellName };
+    }
+    ctx.advance();
+    let xargs;
+    if (ctx.check("LBRACE")) {
+      ctx.advance();
+      xargs = parseBraceBag(ctx);
+    }
+    const xresult = { type: "action-call", object: "self", action: actToken.value, cell: cellName };
+    if (xargs && Object.keys(xargs).length > 0) xresult.args = xargs;
+    return xresult;
+  }
   const firstToken = ctx.peek();
   if (firstToken.type !== "IDENTIFIER" && firstToken.type !== "KEYWORD") {
     ctx.error(`Expected action name after 'do', got ${firstToken.type}`);

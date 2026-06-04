@@ -663,7 +663,18 @@ function parsePrimary(ctx) {
         const varToken = ctx.peek();
         if (varToken.type === "IDENTIFIER" || varToken.type === "KEYWORD") {
           ctx.advance();
-          let result = { type: "get", key: `${name}.${varToken.value}` };
+          let key = `${name}.${varToken.value}`;
+          while (ctx.check("DOT")) {
+            const next = ctx.peekNext();
+            if (next && (next.type === "IDENTIFIER" || next.type === "KEYWORD")) {
+              ctx.advance();
+              ctx.advance();
+              key += "." + next.value;
+            } else {
+              break;
+            }
+          }
+          let result = { type: "get", key };
           while (ctx.check("LBRACKET")) {
             ctx.advance();
             const index = parseExpression(ctx);
@@ -1308,6 +1319,13 @@ function parseSet(ctx) {
         const lhsPath = parseLhsPath(ctx);
         const value3 = parseExpression(ctx);
         return { type: "set", key, value: value3, lhsPath };
+      }
+      if (ctx.check("DOT")) {
+        const lhsPath = parseLhsPath(ctx);
+        if (lhsPath.length > 0) {
+          const value3 = parseExpression(ctx);
+          return { type: "set", key, value: value3, lhsPath };
+        }
       }
       const value2 = parseExpression(ctx);
       return { type: "set", key, value: value2 };
